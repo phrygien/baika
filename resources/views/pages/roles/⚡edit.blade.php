@@ -65,33 +65,42 @@ new class extends Component
 
     public function save(): void
     {
-        $this->validate([
-            'name'         => "required|string|min:2|max:255|unique:roles,name,{$this->roleId}",
-            'display_name' => 'required|string|min:2|max:255',
-            'description'  => 'nullable|string|max:500',
-            'selectedPermissions' => 'array',
-        ]);
+        try {
+            $this->validate([
+                'name'         => "required|string|min:2|max:255|unique:roles,name,{$this->roleId}",
+                'display_name' => 'required|string|min:2|max:255',
+                'description'  => 'nullable|string|max:500',
+                'selectedPermissions' => 'array',
+            ]);
 
-        $role = Role::findOrFail($this->roleId);
+            $role = Role::findOrFail($this->roleId);
 
-        $role->update([
-            'name'         => $this->name,
-            'display_name' => $this->display_name,
-            'description'  => $this->description ?: null,
-        ]);
+            $role->update([
+                'name'         => $this->name,
+                'display_name' => $this->display_name,
+                'description'  => $this->description ?: null,
+            ]);
 
-        $role->permissions()->sync($this->selectedPermissions);
+            $role->permissions()->sync($this->selectedPermissions);
 
-        $this->reset();
-        $this->dispatch('role-updated');
-        Flux::modal('edit-role')->close();
+            $this->reset();
+            $this->dispatch('role-updated');
+            Flux::modal('edit-role')->close();
 
-        $this->dispatch(
-            'notify',
-            variant: 'success',
-            title: __('Role updated'),
-            message: __('The role has been updated successfully.'),
-        );
+            $this->dispatch(
+                'notify',
+                variant: 'success',
+                title: __('Role updated'),
+                message: __('The role has been updated successfully.'),
+            );
+        } catch (ValidationException $e) {
+            $this->dispatch(
+                'notify',
+                variant: 'error',
+                title: __('Validation error'),
+                message: $e->getMessage(),
+            );
+        }
     }
 };
 ?>
