@@ -11,6 +11,12 @@ Route::middleware(["auth", "verified", "role:admin"])->group(function () {
     Route::livewire("permissions", "pages::permissions.page")->name(
         "permissions",
     );
+
+    // Roles
+    Route::livewire("roles", "pages::roles.page")->name("roles");
+
+    // Users
+    Route::livewire("users", "pages::users.page")->name("users");
 });
 
 require __DIR__ . "/settings.php";

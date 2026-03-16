@@ -21,6 +21,12 @@
                     <flux:sidebar.item icon="shield-check" :href="route('permissions')" :current="request()->routeIs('permissions')" wire:navigate>
                         {{ __('Permissions') }}
                     </flux:sidebar.item>
+                    <flux:sidebar.item icon="rectangle-stack" :href="route('roles')" :current="request()->routeIs('roles')" wire:navigate>
+                        {{ __('Roles') }}
+                    </flux:sidebar.item>
+                    <flux:sidebar.item icon="users" :href="route('users')" :current="request()->routeIs('users')" wire:navigate>
+                        {{ __('Users') }}
+                    </flux:sidebar.item>
                 </flux:sidebar.group>
 
             </flux:sidebar.nav>
