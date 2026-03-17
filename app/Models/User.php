@@ -35,7 +35,7 @@ class User extends Authenticatable
         "avatar",
         "gender",
         "date_of_birth",
-        "local",
+        "locale",
         "currency",
         "status",
         "last_login_at",
