@@ -1,7 +1,6 @@
 <?php
 use Livewire\Component;
 use Livewire\WithPagination;
-use Livewire\Attributes\Computed;
 use Livewire\Attributes\Url;
 use Livewire\Attributes\On;
 use App\Models\User;
@@ -45,11 +44,10 @@ new class extends Component
     #[On('user-deleted')]
     public function refreshUsers(): void
     {
-        unset($this->users);
+        $this->resetPage();
     }
 
-    #[Computed]
-    public function users()
+    public function getUsersProperty()
     {
         return User::query()
             ->with(['primaryRole.role', 'activeUserRoles.role'])
@@ -61,12 +59,8 @@ new class extends Component
                       ->orWhere('phone', 'like', "%{$this->search}%")
                 )
             )
-            ->when($this->filterStatus, fn($q) =>
-                $q->where('status', $this->filterStatus)
-            )
-            ->when($this->filterRole, fn($q) =>
-                $q->withRole($this->filterRole)
-            )
+            ->when($this->filterStatus, fn($q) => $q->where('status', $this->filterStatus))
+            ->when($this->filterRole, fn($q) => $q->withRole($this->filterRole))
             ->orderBy($this->sortBy, $this->sortDirection)
             ->paginate(10);
     }
@@ -180,7 +174,6 @@ new class extends Component
             @forelse ($this->users as $user)
                 <flux:table.row :key="$user->id">
 
-                    {{-- Avatar + Nom --}}
                     <flux:table.cell>
                         <div class="flex items-center gap-3">
                             <flux:avatar
@@ -197,12 +190,10 @@ new class extends Component
                         </div>
                     </flux:table.cell>
 
-                    {{-- Email --}}
                     <flux:table.cell class="text-sm text-zinc-500 dark:text-zinc-400">
                         {{ $user->email }}
                     </flux:table.cell>
 
-                    {{-- Roles --}}
                     <flux:table.cell>
                         <div class="flex flex-wrap gap-1">
                             @forelse ($user->activeUserRoles as $userRole)
@@ -219,7 +210,6 @@ new class extends Component
                         </div>
                     </flux:table.cell>
 
-                    {{-- Status --}}
                     <flux:table.cell>
                         <flux:badge
                             size="sm"
@@ -230,17 +220,14 @@ new class extends Component
                         </flux:badge>
                     </flux:table.cell>
 
-                    {{-- Last login --}}
                     <flux:table.cell class="whitespace-nowrap text-sm text-zinc-500 dark:text-zinc-400">
                         {{ $user->last_login_at?->diffForHumans() ?? '—' }}
                     </flux:table.cell>
 
-                    {{-- Created at --}}
                     <flux:table.cell class="whitespace-nowrap text-sm text-zinc-500 dark:text-zinc-400">
                         {{ $user->created_at->format('d M Y') }}
                     </flux:table.cell>
 
-                    {{-- Actions --}}
                     <flux:table.cell>
                         <flux:dropdown>
                             <flux:button variant="ghost" size="sm" icon="ellipsis-horizontal" inset="top bottom" />
@@ -256,12 +243,6 @@ new class extends Component
                                     wire:click="$dispatch('edit-user', { id: {{ $user->id }} })"
                                 >
                                     {{ __('Edit') }}
-                                </flux:menu.item>
-                                <flux:menu.item
-                                    icon="shield-check"
-                                    wire:click="$dispatch('manage-roles', { id: {{ $user->id }} })"
-                                >
-                                    {{ __('Manage roles') }}
                                 </flux:menu.item>
                                 <flux:menu.separator />
                                 <flux:menu.item
@@ -304,4 +285,5 @@ new class extends Component
     </flux:table>
 
     <livewire:pages::users.create />
+    <livewire:pages::users.edit />
 </div>
