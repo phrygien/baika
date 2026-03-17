@@ -44,10 +44,23 @@ class FortifyServiceProvider extends ServiceProvider
             }
 
             if ($user->status !== "active") {
-                throw ValidationException::withMessages([
-                    "email" => __(
+                $message = match ($user->status) {
+                    "inactive" => __(
                         "Your account is inactive. Please contact support.",
                     ),
+                    "banned" => __(
+                        "Your account has been banned. Please contact support.",
+                    ),
+                    "pending" => __(
+                        "Your account is pending approval. Please wait for confirmation.",
+                    ),
+                    default => __(
+                        "Your account is not active. Please contact support.",
+                    ),
+                };
+
+                throw ValidationException::withMessages([
+                    "email" => $message,
                 ]);
             }
 
