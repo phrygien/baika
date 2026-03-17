@@ -94,22 +94,39 @@ new class extends Component
             'newNotes'     => 'nullable|string|max:500',
         ]);
 
-        $user = User::findOrFail($this->userId);
+        try {
+            $user = User::findOrFail($this->userId);
 
-        $user->assignRole(
-            role:        (int) $this->newRoleId,
-            assignedBy:  auth()->id(),
-            expiresAt:   $this->newExpiresAt ?: null,
-            makePrimary: $this->newIsPrimary,
-            notes:       $this->newNotes ?: null,
-        );
+            $user->assignRole(
+                role:        (int) $this->newRoleId,
+                assignedBy:  auth()->id(),
+                expiresAt:   $this->newExpiresAt ?: null,
+                makePrimary: $this->newIsPrimary,
+                notes:       $this->newNotes ?: null,
+            );
 
-        $this->syncAssignedRoles($user);
+            $this->syncAssignedRoles($user);
 
-        $this->newRoleId    = null;
-        $this->newExpiresAt = '';
-        $this->newNotes     = '';
-        $this->newIsPrimary = false;
+            $this->newRoleId    = null;
+            $this->newExpiresAt = '';
+            $this->newNotes     = '';
+            $this->newIsPrimary = false;
+
+            $this->dispatch(
+                'notify',
+                variant: 'success',
+                title: __('Role assigned'),
+                message: __('The role has been assigned successfully.'),
+            );
+
+        } catch (\Throwable $e) {
+            $this->dispatch(
+                'notify',
+                variant: 'warning',
+                title: __('Assignment failed'),
+                message: __('An error occurred while assigning the role.'),
+            );
+        }
     }
 
     public function setPrimary(int $roleId): void
@@ -137,32 +154,42 @@ new class extends Component
             'first_name'    => 'required|string|max:255',
             'last_name'     => 'required|string|max:255',
             'email'         => "required|email|max:255|unique:users,email,{$this->userId}",
-            'phone'         => 'nullable|string|max:20',
+            'phone'         => "nullable|string|max:20|unique:users,phone,{$this->userId}",
             'gender'        => 'nullable|in:male,female,other',
             'date_of_birth' => 'nullable|date|before:today',
             'status'        => 'required|in:active,inactive,pending,banned',
         ]);
 
-        User::findOrFail($this->userId)->update([
-            'first_name'    => $this->first_name,
-            'last_name'     => $this->last_name,
-            'name'          => trim("{$this->first_name} {$this->last_name}"),
-            'email'         => $this->email,
-            'phone'         => $this->phone ?: null,
-            'gender'        => $this->gender ?: null,
-            'date_of_birth' => $this->date_of_birth ?: null,
-            'status'        => trim((string) $this->status),
-        ]);
+        try {
+            User::findOrFail($this->userId)->update([
+                'first_name'    => $this->first_name,
+                'last_name'     => $this->last_name,
+                'name'          => trim("{$this->first_name} {$this->last_name}"),
+                'email'         => $this->email,
+                'phone'         => $this->phone ?: null,
+                'gender'        => $this->gender ?: null,
+                'date_of_birth' => $this->date_of_birth ?: null,
+                'status'        => trim((string) $this->status),
+            ]);
 
-        $this->dispatch('user-updated');
-        Flux::modal('edit-user')->close();
+            $this->dispatch('user-updated');
+            $this->dispatch(
+                'notify',
+                variant: 'success',
+                title: __('User updated'),
+                message: __('The user has been updated successfully.'),
+            );
 
-        $this->dispatch(
-            'notify',
-            variant: 'success',
-            title: __('User updated'),
-            message: __('The user has been updated successfully.'),
-        );
+            Flux::modal('edit-user')->close();
+
+        } catch (\Throwable $e) {
+            $this->dispatch(
+                'notify',
+                variant: 'warning',
+                title: __('Update failed'),
+                message: __('An error occurred while updating the user. Please try again.'),
+            );
+        }
     }
 };
 ?>
@@ -379,26 +406,23 @@ new class extends Component
 
                         {{-- Options du nouveau rôle --}}
                         @if ($newRoleId)
-                            <div class="grid grid-cols-2 gap-3 rounded-lg bg-gray-50 p-3 dark:bg-blue-950/20">
+                            <div class="grid grid-cols-2 gap-3 rounded-lg bg-blue-50 p-3 dark:bg-blue-950/20">
                                 <flux:input
                                     type="date"
                                     label="{{ __('Expires at') }}"
                                     description="{{ __('Optional') }}"
                                     x-on:change="$wire.set('newExpiresAt', $event.target.value)"
-                                    x-bind:value="$wire.newExpiresAt"
                                 />
                                 <flux:input
                                     label="{{ __('Notes') }}"
                                     placeholder="{{ __('Reason...') }}"
                                     x-on:input="$wire.set('newNotes', $event.target.value)"
-                                    x-bind:value="$wire.newNotes"
                                 />
                                 <div class="col-span-2 flex items-center justify-between">
                                     <label class="flex cursor-pointer items-center gap-2">
                                         <input
                                             type="checkbox"
                                             x-on:change="$wire.set('newIsPrimary', $event.target.checked)"
-                                            x-bind:checked="$wire.newIsPrimary"
                                             class="rounded border-zinc-300 text-blue-600"
                                         />
                                         <span class="text-sm text-zinc-700 dark:text-zinc-300">
