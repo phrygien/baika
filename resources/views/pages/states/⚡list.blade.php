@@ -97,7 +97,7 @@ new class extends Component
 
         <flux:spacer />
 
-        <flux:button variant="primary" icon="plus" wire:click="$dispatch('create-state')">
+        <flux:button variant="primary" wire:click="$dispatch('create-state')">
             {{ __('Add State') }}
         </flux:button>
     </div>
