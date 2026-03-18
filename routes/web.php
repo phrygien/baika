@@ -19,7 +19,10 @@ Route::middleware(["auth", "verified"])->group(function () {
     Route::livewire("users", "pages::users.page")->name("users");
 
     // Country
-    Route::livewire("country","pages::country.page")->name("country");
+    Route::livewire("country", "pages::country.page")->name("country");
+
+    // State
+    Route::livewire("state", "pages::states.page")->name("states");
 });
 
 require __DIR__ . "/settings.php";
