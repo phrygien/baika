@@ -5,6 +5,7 @@ use Livewire\Attributes\Computed;
 use App\Models\Supplier;
 use App\Models\Country;
 use Illuminate\Support\Str;
+use App\Models\User;
 use Flux\Flux;
 
 new class extends Component
@@ -32,6 +33,11 @@ new class extends Component
 
     // ── Country search ─────────────────────────────────────────────────────
     public string $countrySearch = '';
+
+    // ── Change owner ───────────────────────────────────────────────────────
+    public bool $showChangeOwner = false;
+    public string $ownerSearch = '';
+    public ?int $newOwnerId = null;
 
     #[On('edit-supplier')]
     public function loadSupplier(int $id): void
@@ -140,6 +146,63 @@ new class extends Component
             );
         }
     }
+
+    #[Computed]
+    public function ownerResults()
+    {
+        if (strlen($this->ownerSearch) < 2) return collect();
+
+        return User::query()
+            ->where(fn($q) =>
+                $q->where('first_name', 'like', "%{$this->ownerSearch}%")
+                  ->orWhere('last_name', 'like', "%{$this->ownerSearch}%")
+                  ->orWhere('email', 'like', "%{$this->ownerSearch}%")
+            )
+            ->whereDoesntHave('supplier', fn($q) => $q->where('id', '!=', $this->supplierId))
+            ->limit(8)
+            ->get();
+    }
+
+    public function selectNewOwner(int $id): void
+    {
+        $this->newOwnerId  = $id;
+        $this->ownerSearch = '';
+        unset($this->ownerResults);
+    }
+
+    public function confirmChangeOwner(): void
+    {
+        if (!$this->newOwnerId) return;
+
+        try {
+            $newUser  = User::findOrFail($this->newOwnerId);
+            $supplier = Supplier::findOrFail($this->supplierId);
+
+            $supplier->update(['user_id' => $this->newOwnerId]);
+
+            $this->userId           = $newUser->id;
+            $this->ownerName        = $newUser->fullName() ?: $newUser->name;
+            $this->ownerEmail       = $newUser->email;
+            $this->newOwnerId       = null;
+            $this->showChangeOwner  = false;
+            $this->ownerSearch      = '';
+
+            $this->dispatch(
+                'notify',
+                variant: 'success',
+                title: __('Owner changed'),
+                message: __('The supplier owner has been updated to :name.', ['name' => $newUser->fullName()]),
+            );
+
+        } catch (\Throwable $e) {
+            $this->dispatch(
+                'notify',
+                variant: 'warning',
+                title: __('Change failed'),
+                message: __('An error occurred while changing the owner.'),
+            );
+        }
+    }
 };
 ?>
 
@@ -148,24 +211,119 @@ new class extends Component
         <form wire:submit="save">
             <div class="space-y-6">
 
-                {{-- Header avec owner --}}
-                <div class="flex items-center gap-4">
-                    <div class="flex size-10 shrink-0 items-center justify-center rounded-full bg-blue-100 dark:bg-blue-900/30">
-                        <flux:icon name="building-storefront" class="size-5 text-blue-600 dark:text-blue-400" />
-                    </div>
-                    <div class="min-w-0 flex-1">
-                        <flux:heading size="lg">{{ __('Edit Supplier') }}</flux:heading>
-                        @if ($ownerName || $ownerEmail)
-                            <flux:text class="mt-0.5">
-                                <span class="text-zinc-400">{{ __('Owner') }} ·</span>
-                                <span class="font-medium text-zinc-700 dark:text-zinc-300">{{ $ownerName }}</span>
-                                @if ($ownerEmail)
-                                    <span class="text-zinc-400"> · {{ $ownerEmail }}</span>
-                                @endif
-                            </flux:text>
+            {{-- Header avec owner --}}
+            <div class="rounded-xl border border-zinc-200 dark:border-zinc-700">
+                <div class="flex items-center justify-between border-b border-zinc-100 px-4 py-3 dark:border-zinc-800">
+                    <p class="text-xs font-semibold uppercase tracking-wider text-zinc-400">
+                        {{ __('Owner') }}
+                    </p>
+                    <flux:button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        :icon="$showChangeOwner ? 'x-mark' : 'arrow-path'"
+                        x-on:click="$wire.set('showChangeOwner', {{ $showChangeOwner ? 'false' : 'true' }})"
+                    >
+                        {{ $showChangeOwner ? __('Cancel') : __('Change owner') }}
+                    </flux:button>
+                </div>
+
+                <div class="p-4">
+                    {{-- Owner actuel --}}
+                    <div class="flex items-center gap-3 rounded-lg {{ $showChangeOwner ? 'bg-zinc-50 dark:bg-zinc-800/50' : '' }} px-3 py-2.5">
+                        <flux:avatar size="sm" name="{{ $ownerName }}" />
+                        <div class="min-w-0 flex-1">
+                            <p class="text-sm font-medium text-zinc-800 dark:text-zinc-200">
+                                {{ $ownerName ?: '—' }}
+                            </p>
+                            <p class="text-xs text-zinc-400">{{ $ownerEmail ?: '—' }}</p>
+                        </div>
+                        @if (!$showChangeOwner)
+                            <flux:badge size="sm" color="blue" inset="top bottom">{{ __('Current') }}</flux:badge>
+                        @else
+                            <flux:badge size="sm" color="zinc" inset="top bottom">{{ __('Current') }}</flux:badge>
                         @endif
                     </div>
+
+                    {{-- Formulaire changement d'owner --}}
+                    @if ($showChangeOwner)
+                        <div class="mt-3 space-y-2">
+                            <flux:input
+                                wire:model.live.debounce.300ms="ownerSearch"
+                                icon="magnifying-glass"
+                                placeholder="{{ __('Search new owner by name or email...') }}"
+                                size="sm"
+                            />
+
+                            @if (strlen($ownerSearch) >= 2)
+                                <div class="overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-700">
+                                    @forelse ($this->ownerResults as $user)
+                                        <button
+                                            type="button"
+                                            wire:key="owner-{{ $user->id }}"
+                                            x-on:click="$wire.selectNewOwner({{ $user->id }})"
+                                            class="flex w-full items-center gap-3 border-b border-zinc-50 px-4 py-2.5 text-left last:border-0 hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-800/30"
+                                        >
+                                            <flux:avatar size="xs" src="{{ $user->avatar }}" name="{{ $user->fullName() }}" />
+                                            <div class="min-w-0 flex-1">
+                                                <p class="text-sm font-medium text-zinc-800 dark:text-zinc-200">
+                                                    {{ $user->fullName() ?: $user->name }}
+                                                </p>
+                                                <p class="text-xs text-zinc-400">{{ $user->email }}</p>
+                                            </div>
+                                            <flux:icon name="chevron-right" class="size-4 text-zinc-300" />
+                                        </button>
+                                    @empty
+                                        <div class="flex items-center justify-center py-4">
+                                            <p class="text-sm text-zinc-400">{{ __('No users found.') }}</p>
+                                        </div>
+                                    @endforelse
+                                </div>
+                            @elseif ($newOwnerId)
+                                {{-- Nouvel owner sélectionné --}}
+                                @php $newOwner = $this->ownerResults->firstWhere('id', $newOwnerId) ?? \App\Models\User::find($newOwnerId); @endphp
+                                @if ($newOwner)
+                                    <div class="flex items-center gap-3 rounded-lg border border-green-200 bg-green-50 px-4 py-3 dark:border-green-800 dark:bg-green-950/20">
+                                        <flux:avatar size="sm" src="{{ $newOwner->avatar }}" name="{{ $newOwner->fullName() }}" />
+                                        <div class="min-w-0 flex-1">
+                                            <p class="text-sm font-medium text-zinc-800 dark:text-zinc-200">
+                                                {{ $newOwner->fullName() ?: $newOwner->name }}
+                                            </p>
+                                            <p class="text-xs text-zinc-400">{{ $newOwner->email }}</p>
+                                        </div>
+                                        <div class="flex items-center gap-2">
+                                            <flux:badge size="sm" color="green" inset="top bottom">{{ __('New owner') }}</flux:badge>
+                                            <flux:button
+                                                type="button"
+                                                variant="ghost"
+                                                size="sm"
+                                                icon="x-mark"
+                                                x-on:click="$wire.set('newOwnerId', null)"
+                                            />
+                                        </div>
+                                    </div>
+                                @endif
+                            @else
+                                <p class="text-xs text-zinc-400">{{ __('Type at least 2 characters to search.') }}</p>
+                            @endif
+
+                            @if ($newOwnerId)
+                                <div class="flex justify-end">
+                                    <flux:button
+                                        type="button"
+                                        variant="primary"
+                                        size="sm"
+                                        icon="check"
+                                        x-on:click="$wire.confirmChangeOwner()"
+                                    >
+                                        {{ __('Confirm change') }}
+                                    </flux:button>
+                                </div>
+                            @endif
+                        </div>
+                    @endif
                 </div>
+            </div>
 
                 {{-- Section : Shop --}}
                 <div class="rounded-xl border border-zinc-200 dark:border-zinc-700">

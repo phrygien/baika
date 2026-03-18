@@ -501,4 +501,6 @@ new class extends Component
 
     <livewire:pages::suppliers.create />
     <livewire:pages::suppliers.edit />
+    <livewire:pages::suppliers.approve />
+    <livewire:pages::suppliers.delete />
 </div>
