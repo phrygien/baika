@@ -20,7 +20,7 @@ class UsersTableSeeder extends Seeder
             ],
         );
 
-        $this->command->info("Creating 4000 users...");
+        $this->command->info("Creating 10000 users...");
         $bar = $this->command->getOutput()->createProgressBar(4000);
         $bar->start();
 
@@ -36,7 +36,7 @@ class UsersTableSeeder extends Seeder
         $password = Hash::make("password");
 
         // Chunker par 500 pour éviter les memory issues
-        $chunks = array_chunk(range(1, 4000), 500);
+        $chunks = array_chunk(range(1, 10000), 500);
 
         foreach ($chunks as $chunk) {
             $users = [];
@@ -121,6 +121,6 @@ class UsersTableSeeder extends Seeder
 
         $bar->finish();
         $this->command->newLine();
-        $this->command->info("✅ 4000 users created with customer role.");
+        $this->command->info("✅ 10000 users created with customer role.");
     }
 }
