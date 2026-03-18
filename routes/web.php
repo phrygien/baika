@@ -17,6 +17,9 @@ Route::middleware(["auth", "verified"])->group(function () {
 
     // Users
     Route::livewire("users", "pages::users.page")->name("users");
+
+    // Country
+    Route::livewire("country","pages::country.page")->name("country");
 });
 
 require __DIR__ . "/settings.php";

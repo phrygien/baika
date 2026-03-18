@@ -29,6 +29,12 @@
                     </flux:sidebar.item>
                 </flux:sidebar.group>
 
+                <flux:sidebar.group :heading="__('Settings')" class="grid">
+                    <flux:sidebar.item icon="flag" :href="route('country')" :current="request()->routeIs('country')" wire:navigate>
+                        {{ __('Country') }}
+                    </flux:sidebar.item>
+                </flux:sidebar.group>
+
             </flux:sidebar.nav>
 
             <flux:spacer />
