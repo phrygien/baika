@@ -211,47 +211,86 @@ new class extends Component
         <form wire:submit="save">
             <div class="space-y-6">
 
-            {{-- Header avec owner --}}
-            <div class="rounded-xl border border-zinc-200 dark:border-zinc-700">
-                <div class="flex items-center justify-between border-b border-zinc-100 px-4 py-3 dark:border-zinc-800">
-                    <p class="text-xs font-semibold uppercase tracking-wider text-zinc-400">
-                        {{ __('Owner') }}
-                    </p>
-                    <flux:button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        :icon="$showChangeOwner ? 'x-mark' : 'arrow-path'"
-                        x-on:click="$wire.set('showChangeOwner', {{ $showChangeOwner ? 'false' : 'true' }})"
-                    >
-                        {{ $showChangeOwner ? __('Cancel') : __('Change owner') }}
-                    </flux:button>
-                </div>
-
-                <div class="p-4">
-                    {{-- Owner actuel --}}
-                    <div class="flex items-center gap-3 rounded-lg {{ $showChangeOwner ? 'bg-zinc-50 dark:bg-zinc-800/50' : '' }} px-3 py-2.5">
-                        <flux:avatar size="sm" name="{{ $ownerName }}" />
-                        <div class="min-w-0 flex-1">
-                            <p class="text-sm font-medium text-zinc-800 dark:text-zinc-200">
-                                {{ $ownerName ?: '—' }}
-                            </p>
-                            <p class="text-xs text-zinc-400">{{ $ownerEmail ?: '—' }}</p>
-                        </div>
-                        @if (!$showChangeOwner)
-                            <flux:badge size="sm" color="blue" inset="top bottom">{{ __('Current') }}</flux:badge>
-                        @else
-                            <flux:badge size="sm" color="zinc" inset="top bottom">{{ __('Current') }}</flux:badge>
+            {{-- Header --}}
+            <div class="flex items-center gap-4 pb-2">
+                <flux:avatar
+                    size="lg"
+                    src="{{ $logo ?? null }}"
+                    name="{{ $shop_name ?: 'Supplier' }}"
+                    class="shrink-0"
+                />
+                <div class="min-w-0 flex-1 pr-8">
+                    <div class="flex flex-wrap items-center gap-2">
+                        <flux:heading size="lg">{{ __('Edit Supplier') }}</flux:heading>
+                        @if ($status)
+                            <flux:badge
+                                size="sm"
+                                :color="match($status) {
+                                    'approved'  => 'green',
+                                    'pending'   => 'yellow',
+                                    'rejected'  => 'red',
+                                    'suspended' => 'zinc',
+                                    default     => 'zinc',
+                                }"
+                                inset="top bottom"
+                            >
+                                {{ ucfirst($status) }}
+                            </flux:badge>
+                        @endif
+                        @if ($is_verified)
+                            <flux:badge size="sm" color="blue" inset="top bottom" icon="check-badge">
+                                {{ __('Verified') }}
+                            </flux:badge>
+                        @endif
+                        @if ($is_featured)
+                            <flux:badge size="sm" color="yellow" inset="top bottom" icon="star">
+                                {{ __('Featured') }}
+                            </flux:badge>
                         @endif
                     </div>
+                    @if ($shop_name)
+                        <p class="mt-0.5 text-sm text-zinc-400">
+                            {{ $shop_name }}
+                            @if ($slug)
+                                <span class="text-zinc-300 dark:text-zinc-600"> · </span>
+                                <span class="font-mono text-xs">{{ $slug }}</span>
+                            @endif
+                        </p>
+                    @endif
 
-                    {{-- Formulaire changement d'owner --}}
+                    {{-- Owner + bouton change --}}
+                    <div class="mt-1 flex items-center gap-2">
+                        <flux:icon name="user-circle" class="size-3.5 shrink-0 text-zinc-400" />
+                        <p class="text-xs text-zinc-400">
+                            {{ $ownerName }}
+                            @if ($ownerEmail)
+                                <span class="text-zinc-300 dark:text-zinc-600"> · </span>
+                                {{ $ownerEmail }}
+                            @endif
+                        </p>
+                        <button
+                            type="button"
+                            x-on:click="$wire.set('showChangeOwner', {{ $showChangeOwner ? 'false' : 'true' }})"
+                            class="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs transition-colors
+                                {{ $showChangeOwner
+                                    ? 'bg-zinc-100 text-zinc-600 dark:bg-zinc-700 dark:text-zinc-300'
+                                    : 'text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600 dark:hover:bg-zinc-800 dark:hover:text-zinc-300' }}"
+                        >
+                            <flux:icon
+                                name="{{ $showChangeOwner ? 'x-mark' : 'arrow-path' }}"
+                                class="size-3"
+                            />
+                            <span class="text-rose-600">{{ $showChangeOwner ? __('Cancel') : __('Change') }}</span>
+                        </button>
+                    </div>
+
+                    {{-- Formulaire changement owner --}}
                     @if ($showChangeOwner)
                         <div class="mt-3 space-y-2">
                             <flux:input
                                 wire:model.live.debounce.300ms="ownerSearch"
                                 icon="magnifying-glass"
-                                placeholder="{{ __('Search new owner by name or email...') }}"
+                                placeholder="{{ __('Search new owner...') }}"
                                 size="sm"
                             />
 
@@ -280,8 +319,7 @@ new class extends Component
                                     @endforelse
                                 </div>
                             @elseif ($newOwnerId)
-                                {{-- Nouvel owner sélectionné --}}
-                                @php $newOwner = $this->ownerResults->firstWhere('id', $newOwnerId) ?? \App\Models\User::find($newOwnerId); @endphp
+                                @php $newOwner = \App\Models\User::find($newOwnerId); @endphp
                                 @if ($newOwner)
                                     <div class="flex items-center gap-3 rounded-lg border border-green-200 bg-green-50 px-4 py-3 dark:border-green-800 dark:bg-green-950/20">
                                         <flux:avatar size="sm" src="{{ $newOwner->avatar }}" name="{{ $newOwner->fullName() }}" />
@@ -302,23 +340,21 @@ new class extends Component
                                             />
                                         </div>
                                     </div>
+
+                                    <div class="flex justify-end">
+                                        <flux:button
+                                            type="button"
+                                            variant="primary"
+                                            size="sm"
+                                            icon="check"
+                                            x-on:click="$wire.confirmChangeOwner()"
+                                        >
+                                            {{ __('Confirm change') }}
+                                        </flux:button>
+                                    </div>
                                 @endif
                             @else
                                 <p class="text-xs text-zinc-400">{{ __('Type at least 2 characters to search.') }}</p>
-                            @endif
-
-                            @if ($newOwnerId)
-                                <div class="flex justify-end">
-                                    <flux:button
-                                        type="button"
-                                        variant="primary"
-                                        size="sm"
-                                        icon="check"
-                                        x-on:click="$wire.confirmChangeOwner()"
-                                    >
-                                        {{ __('Confirm change') }}
-                                    </flux:button>
-                                </div>
                             @endif
                         </div>
                     @endif
