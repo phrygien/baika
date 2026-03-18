@@ -23,6 +23,9 @@ Route::middleware(["auth", "verified"])->group(function () {
 
     // State
     Route::livewire("state", "pages::states.page")->name("states");
+
+    // Supliers
+    Route::livewire("suppliers", "pages::suppliers.page")->name("suppliers");
 });
 
 require __DIR__ . "/settings.php";

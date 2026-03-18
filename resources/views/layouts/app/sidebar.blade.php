@@ -36,6 +36,9 @@
                     <flux:sidebar.item icon="map" :href="route('states')" :current="request()->routeIs('states')" wire:navigate>
                         {{ __('States') }}
                     </flux:sidebar.item>
+                    <flux:sidebar.item icon="users" :href="route('suppliers')" :current="request()->routeIs('suppliers')" wire:navigate>
+                        {{ __('Suppliers') }}
+                    </flux:sidebar.item>
                 </flux:sidebar.group>
 
             </flux:sidebar.nav>
