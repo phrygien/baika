@@ -48,6 +48,9 @@
                     <flux:sidebar.item icon="tag" :href="route('brands')" :current="request()->routeIs('brands')" wire:navigate>
                         {{ __('Brands') }}
                     </flux:sidebar.item>
+                    <flux:sidebar.item icon="shopping-bag" :href="route('products')" :current="request()->routeIs('products')" wire:navigate>
+                        {{ __('Products') }}
+                    </flux:sidebar.item>
                 </flux:sidebar.group>
 
 

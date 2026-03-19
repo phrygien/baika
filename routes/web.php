@@ -2,7 +2,7 @@
 
 use Illuminate\Support\Facades\Route;
 
-Route::view("/", "welcome")->name("home");
+Route::view("/", "shared.home")->name("home");
 
 Route::middleware(["auth", "verified"])->group(function () {
     Route::view("dashboard", "dashboard")->name("dashboard");
@@ -32,6 +32,9 @@ Route::middleware(["auth", "verified"])->group(function () {
 
     // Brands
     Route::livewire("brands", "pages::brands.page")->name("brands");
+
+    // Products
+    Route::livewire("products", "pages::products.page")->name("products");
 });
 
 require __DIR__ . "/settings.php";
