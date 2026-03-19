@@ -26,6 +26,9 @@ Route::middleware(["auth", "verified"])->group(function () {
 
     // Supliers
     Route::livewire("suppliers", "pages::suppliers.page")->name("suppliers");
+
+    // Categories
+    Route::livewire("categories", "pages::categories.page")->name("categories");
 });
 
 require __DIR__ . "/settings.php";

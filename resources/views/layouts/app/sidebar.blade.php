@@ -41,6 +41,13 @@
                     </flux:sidebar.item>
                 </flux:sidebar.group>
 
+                <flux:sidebar.group :heading="__('Catalogues')" class="grid">
+                    <flux:sidebar.item icon="rectangle-stack" :href="route('categories')" :current="request()->routeIs('categories')" wire:navigate>
+                        {{ __('Categories') }}
+                    </flux:sidebar.item>
+                </flux:sidebar.group>
+
+
             </flux:sidebar.nav>
 
             <flux:spacer />
