@@ -51,7 +51,7 @@ new class extends Component
         if ($this->sortBy === $column) {
             $this->sortDirection = $this->sortDirection === 'asc' ? 'desc' : 'asc';
         } else {
-            $this->sortBy        = $column;
+            $this->sortBy = $column;
             $this->sortDirection = 'asc';
         }
         $this->resetPage();
@@ -123,7 +123,6 @@ new class extends Component
     #[On('product-deleted')]
     public function refreshProducts(): void
     {
-        unset($this->products);
         $this->resetPage();
     }
 
@@ -160,19 +159,19 @@ new class extends Component
     }
 
     #[Computed]
-    public function allCategories()
+    public function categories()
     {
-        return Category::orderBy('depth')->orderBy('name')->get(['id', 'name', 'depth', 'icon']);
+        return Category::roots()->orderBy('name')->get(['id', 'name']);
     }
 
     #[Computed]
-    public function allBrands()
+    public function brands()
     {
         return Brand::orderBy('name')->get(['id', 'name']);
     }
 
     #[Computed]
-    public function allSuppliers()
+    public function suppliers()
     {
         return Supplier::approved()->orderBy('shop_name')->get(['id', 'shop_name']);
     }
@@ -187,42 +186,31 @@ new class extends Component
             default     => 'zinc',
         };
     }
-
-    public function paginationData(): array
-    {
-        $current = $this->products->currentPage();
-        $last    = $this->products->lastPage();
-
-        $pages = collect([1]);
-        for ($i = max(2, $current - 2); $i <= min($last - 1, $current + 2); $i++) {
-            $pages->push($i);
-        }
-        if ($last > 1) $pages->push($last);
-
-        return [
-            'current'   => $current,
-            'last'      => $last,
-            'pages'     => $pages->unique()->sort()->values()->toArray(),
-            'hasMore'   => $this->products->hasMorePages(),
-            'onFirst'   => $this->products->onFirstPage(),
-            'firstItem' => $this->products->firstItem(),
-            'lastItem'  => $this->products->lastItem(),
-            'total'     => $this->products->total(),
-        ];
-    }
 };
 ?>
 
 <div>
+    {{-- Skeleton pulse CSS --}}
     <style>
-        @keyframes loading-bar {
-            0%   { transform: translateX(-100%); }
-            100% { transform: translateX(400%); }
+        @keyframes shimmer {
+            0% { background-position: -1000px 0; }
+            100% { background-position: 1000px 0; }
         }
-        .content-loading {
-            opacity: 0.4;
-            pointer-events: none;
-            transition: opacity 0.15s ease;
+        .skeleton {
+            background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+            background-size: 1000px 100%;
+            animation: shimmer 1.5s infinite linear;
+        }
+        .dark .skeleton {
+            background: linear-gradient(90deg, #2a2a2a 25%, #333333 50%, #2a2a2a 75%);
+            background-size: 1000px 100%;
+        }
+        .img-lazy {
+            opacity: 0;
+            transition: opacity 0.4s ease;
+        }
+        .img-lazy.loaded {
+            opacity: 1;
         }
     </style>
 
@@ -232,7 +220,7 @@ new class extends Component
         <flux:separator variant="subtle" />
     </div>
 
-    {{-- ── Toolbar ── --}}
+    {{-- Toolbar --}}
     <div class="mb-4 space-y-3">
 
         {{-- Ligne 1 --}}
@@ -247,15 +235,13 @@ new class extends Component
 
             <flux:spacer />
 
-            {{-- View mode --}}
+            {{-- View mode toggle --}}
             <div class="flex items-center gap-1 rounded-lg border border-zinc-200 p-1 dark:border-zinc-700">
                 <button
                     type="button"
                     wire:click="setViewMode('grid')"
                     class="flex size-7 items-center justify-center rounded-md transition-colors
-                        {{ $viewMode === 'grid'
-                            ? 'bg-zinc-800 text-white dark:bg-zinc-200 dark:text-zinc-800'
-                            : 'text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300' }}"
+                        {{ $viewMode === 'grid' ? 'bg-zinc-800 text-white dark:bg-zinc-200 dark:text-zinc-800' : 'text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300' }}"
                 >
                     <svg class="size-4" fill="currentColor" viewBox="0 0 16 16">
                         <rect x="1" y="1" width="6" height="6" rx="1"/>
@@ -268,9 +254,7 @@ new class extends Component
                     type="button"
                     wire:click="setViewMode('list')"
                     class="flex size-7 items-center justify-center rounded-md transition-colors
-                        {{ $viewMode === 'list'
-                            ? 'bg-zinc-800 text-white dark:bg-zinc-200 dark:text-zinc-800'
-                            : 'text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300' }}"
+                        {{ $viewMode === 'list' ? 'bg-zinc-800 text-white dark:bg-zinc-200 dark:text-zinc-800' : 'text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300' }}"
                 >
                     <svg class="size-4" fill="currentColor" viewBox="0 0 16 16">
                         <rect x="1" y="2" width="14" height="2.5" rx="1"/>
@@ -302,7 +286,7 @@ new class extends Component
             </flux:button>
 
             @if (!$showTrashed)
-                <flux:button variant="primary" icon="plus" wire:click="$dispatch('create-product')">
+                <flux:button variant="primary" wire:click="$dispatch('create-product')">
                     {{ __('Add Product') }}
                 </flux:button>
             @endif
@@ -311,166 +295,35 @@ new class extends Component
         {{-- Ligne 2 : Filtres --}}
         @if (!$showTrashed)
             <div class="flex flex-wrap items-center gap-2">
-
-                <flux:select wire:model.live="filterStatus" class="w-40">
+                <flux:select wire:model.live="filterStatus" placeholder="{{ __('All statuses') }}" class="w-40">
                     <flux:select.option value="">{{ __('All statuses') }}</flux:select.option>
                     <flux:select.option value="pending">{{ __('Pending') }}</flux:select.option>
                     <flux:select.option value="approved">{{ __('Approved') }}</flux:select.option>
                     <flux:select.option value="rejected">{{ __('Rejected') }}</flux:select.option>
                 </flux:select>
 
-                {{-- Category --}}
-                <div
-                    x-data="{
-                        open: false,
-                        search: '',
-                        get label() {
-                            @if ($filterCategory)
-                                return '{{ addslashes($this->allCategories->firstWhere('id', (int)$filterCategory)?->name ?? __('All categories')) }}';
-                            @else
-                                return '{{ __('All categories') }}';
-                            @endif
-                        }
-                    }"
-                    class="relative"
-                    x-on:click.outside="open = false; search = ''"
-                >
-                    <button type="button" x-on:click="open = !open"
-                        class="flex h-9 items-center gap-2 rounded-lg border px-3 text-sm shadow-sm transition
-                            {{ $filterCategory ? 'border-blue-400 bg-blue-50 text-blue-600 dark:border-blue-700 dark:bg-blue-950/20 dark:text-blue-400' : 'border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800' }}"
-                    >
-                        <span x-text="label" class="max-w-[150px] truncate"></span>
-                        <flux:icon name="chevron-down" class="size-3.5 shrink-0 text-zinc-400" />
-                    </button>
-                    <div x-show="open"
-                        x-transition:enter="transition ease-out duration-100" x-transition:enter-start="opacity-0 translate-y-1" x-transition:enter-end="opacity-100 translate-y-0"
-                        x-transition:leave="transition ease-in duration-75" x-transition:leave-start="opacity-100 translate-y-0" x-transition:leave-end="opacity-0 translate-y-1"
-                        class="absolute left-0 top-10 z-50 w-72 overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
-                        style="display:none"
-                    >
-                        <div class="border-b border-zinc-100 p-2 dark:border-zinc-800">
-                            <input type="text" x-model="search" placeholder="{{ __('Search category...') }}"
-                                class="w-full rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-1.5 text-sm outline-none focus:border-blue-400 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200 dark:placeholder-zinc-500"
-                                x-on:click.stop x-ref="catInput"
-                                x-init="$watch('open', v => v && $nextTick(() => $refs.catInput?.focus()))"
-                            />
-                        </div>
-                        <div class="max-h-56 overflow-y-auto py-1">
-                            <button type="button" wire:click="$set('filterCategory', '')" x-on:click="open=false;search=''" class="w-full px-3 py-2 text-left text-sm text-zinc-500 hover:bg-zinc-50 dark:hover:bg-zinc-800">{{ __('All categories') }}</button>
-                            @foreach ($this->allCategories as $category)
-                                <button type="button" wire:click="$set('filterCategory', {{ $category->id }})"
-                                    x-show="search==='' || '{{ strtolower(addslashes($category->name)) }}'.includes(search.toLowerCase())"
-                                    x-on:click="open=false;search=''"
-                                    class="flex w-full items-center gap-1 px-3 py-2 text-left text-sm transition {{ $filterCategory == $category->id ? 'bg-blue-50 font-medium text-blue-600 dark:bg-blue-950/20 dark:text-blue-400' : 'text-zinc-700 hover:bg-zinc-50 dark:text-zinc-300 dark:hover:bg-zinc-800' }}"
-                                >
-                                    @if (($category->depth ?? 0) > 0)<span class="shrink-0 text-xs text-zinc-300 dark:text-zinc-600">{{ str_repeat('— ', $category->depth) }}</span>@endif
-                                    @if ($category->icon)<span class="shrink-0">{{ $category->icon }}</span>@endif
-                                    <span class="truncate">{{ $category->name }}</span>
-                                </button>
-                            @endforeach
-                        </div>
-                    </div>
-                </div>
+                <flux:select wire:model.live="filterCategory" placeholder="{{ __('All categories') }}" class="w-44">
+                    <flux:select.option value="">{{ __('All categories') }}</flux:select.option>
+                    @foreach ($this->categories as $category)
+                        <flux:select.option value="{{ $category->id }}">{{ $category->name }}</flux:select.option>
+                    @endforeach
+                </flux:select>
 
-                {{-- Brand --}}
-                <div
-                    x-data="{
-                        open: false,
-                        search: '',
-                        get label() {
-                            @if ($filterBrand)
-                                return '{{ addslashes($this->allBrands->firstWhere('id', (int)$filterBrand)?->name ?? __('All brands')) }}';
-                            @else
-                                return '{{ __('All brands') }}';
-                            @endif
-                        }
-                    }"
-                    class="relative"
-                    x-on:click.outside="open = false; search = ''"
-                >
-                    <button type="button" x-on:click="open = !open"
-                        class="flex h-9 items-center gap-2 rounded-lg border px-3 text-sm shadow-sm transition
-                            {{ $filterBrand ? 'border-blue-400 bg-blue-50 text-blue-600 dark:border-blue-700 dark:bg-blue-950/20 dark:text-blue-400' : 'border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800' }}"
-                    >
-                        <span x-text="label" class="max-w-[130px] truncate"></span>
-                        <flux:icon name="chevron-down" class="size-3.5 shrink-0 text-zinc-400" />
-                    </button>
-                    <div x-show="open"
-                        x-transition:enter="transition ease-out duration-100" x-transition:enter-start="opacity-0 translate-y-1" x-transition:enter-end="opacity-100 translate-y-0"
-                        x-transition:leave="transition ease-in duration-75" x-transition:leave-start="opacity-100 translate-y-0" x-transition:leave-end="opacity-0 translate-y-1"
-                        class="absolute left-0 top-10 z-50 w-56 overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
-                        style="display:none"
-                    >
-                        <div class="border-b border-zinc-100 p-2 dark:border-zinc-800">
-                            <input type="text" x-model="search" placeholder="{{ __('Search brand...') }}"
-                                class="w-full rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-1.5 text-sm outline-none focus:border-blue-400 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200 dark:placeholder-zinc-500"
-                                x-on:click.stop x-ref="brandInput"
-                                x-init="$watch('open', v => v && $nextTick(() => $refs.brandInput?.focus()))"
-                            />
-                        </div>
-                        <div class="max-h-56 overflow-y-auto py-1">
-                            <button type="button" wire:click="$set('filterBrand', '')" x-on:click="open=false;search=''" class="w-full px-3 py-2 text-left text-sm text-zinc-500 hover:bg-zinc-50 dark:hover:bg-zinc-800">{{ __('All brands') }}</button>
-                            @foreach ($this->allBrands as $brand)
-                                <button type="button" wire:click="$set('filterBrand', {{ $brand->id }})"
-                                    x-show="search==='' || '{{ strtolower(addslashes($brand->name)) }}'.includes(search.toLowerCase())"
-                                    x-on:click="open=false;search=''"
-                                    class="w-full truncate px-3 py-2 text-left text-sm transition {{ $filterBrand == $brand->id ? 'bg-blue-50 font-medium text-blue-600 dark:bg-blue-950/20 dark:text-blue-400' : 'text-zinc-700 hover:bg-zinc-50 dark:text-zinc-300 dark:hover:bg-zinc-800' }}"
-                                >{{ $brand->name }}</button>
-                            @endforeach
-                        </div>
-                    </div>
-                </div>
+                <flux:select wire:model.live="filterBrand" placeholder="{{ __('All brands') }}" class="w-40">
+                    <flux:select.option value="">{{ __('All brands') }}</flux:select.option>
+                    @foreach ($this->brands as $brand)
+                        <flux:select.option value="{{ $brand->id }}">{{ $brand->name }}</flux:select.option>
+                    @endforeach
+                </flux:select>
 
-                {{-- Supplier --}}
-                <div
-                    x-data="{
-                        open: false,
-                        search: '',
-                        get label() {
-                            @if ($filterSupplier)
-                                return '{{ addslashes($this->allSuppliers->firstWhere('id', (int)$filterSupplier)?->shop_name ?? __('All suppliers')) }}';
-                            @else
-                                return '{{ __('All suppliers') }}';
-                            @endif
-                        }
-                    }"
-                    class="relative"
-                    x-on:click.outside="open = false; search = ''"
-                >
-                    <button type="button" x-on:click="open = !open"
-                        class="flex h-9 items-center gap-2 rounded-lg border px-3 text-sm shadow-sm transition
-                            {{ $filterSupplier ? 'border-blue-400 bg-blue-50 text-blue-600 dark:border-blue-700 dark:bg-blue-950/20 dark:text-blue-400' : 'border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800' }}"
-                    >
-                        <span x-text="label" class="max-w-[150px] truncate"></span>
-                        <flux:icon name="chevron-down" class="size-3.5 shrink-0 text-zinc-400" />
-                    </button>
-                    <div x-show="open"
-                        x-transition:enter="transition ease-out duration-100" x-transition:enter-start="opacity-0 translate-y-1" x-transition:enter-end="opacity-100 translate-y-0"
-                        x-transition:leave="transition ease-in duration-75" x-transition:leave-start="opacity-100 translate-y-0" x-transition:leave-end="opacity-0 translate-y-1"
-                        class="absolute left-0 top-10 z-50 w-64 overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
-                        style="display:none"
-                    >
-                        <div class="border-b border-zinc-100 p-2 dark:border-zinc-800">
-                            <input type="text" x-model="search" placeholder="{{ __('Search supplier...') }}"
-                                class="w-full rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-1.5 text-sm outline-none focus:border-blue-400 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200 dark:placeholder-zinc-500"
-                                x-on:click.stop x-ref="supplierInput"
-                                x-init="$watch('open', v => v && $nextTick(() => $refs.supplierInput?.focus()))"
-                            />
-                        </div>
-                        <div class="max-h-56 overflow-y-auto py-1">
-                            <button type="button" wire:click="$set('filterSupplier', '')" x-on:click="open=false;search=''" class="w-full px-3 py-2 text-left text-sm text-zinc-500 hover:bg-zinc-50 dark:hover:bg-zinc-800">{{ __('All suppliers') }}</button>
-                            @foreach ($this->allSuppliers as $supplier)
-                                <button type="button" wire:click="$set('filterSupplier', {{ $supplier->id }})"
-                                    x-show="search==='' || '{{ strtolower(addslashes($supplier->shop_name)) }}'.includes(search.toLowerCase())"
-                                    x-on:click="open=false;search=''"
-                                    class="w-full truncate px-3 py-2 text-left text-sm transition {{ $filterSupplier == $supplier->id ? 'bg-blue-50 font-medium text-blue-600 dark:bg-blue-950/20 dark:text-blue-400' : 'text-zinc-700 hover:bg-zinc-50 dark:text-zinc-300 dark:hover:bg-zinc-800' }}"
-                                >{{ $supplier->shop_name }}</button>
-                            @endforeach
-                        </div>
-                    </div>
-                </div>
+                <flux:select wire:model.live="filterSupplier" placeholder="{{ __('All suppliers') }}" class="w-44">
+                    <flux:select.option value="">{{ __('All suppliers') }}</flux:select.option>
+                    @foreach ($this->suppliers as $supplier)
+                        <flux:select.option value="{{ $supplier->id }}">{{ $supplier->shop_name }}</flux:select.option>
+                    @endforeach
+                </flux:select>
 
-                <flux:select wire:model.live="filterFeatured" class="w-36">
+                <flux:select wire:model.live="filterFeatured" placeholder="{{ __('All') }}" class="w-36">
                     <flux:select.option value="">{{ __('All') }}</flux:select.option>
                     <flux:select.option value="1">{{ __('Featured') }}</flux:select.option>
                     <flux:select.option value="0">{{ __('Not featured') }}</flux:select.option>
@@ -484,7 +337,6 @@ new class extends Component
                     <flux:select.option value="average_rating">{{ __('Top rated') }}</flux:select.option>
                     <flux:select.option value="total_views">{{ __('Most viewed') }}</flux:select.option>
                 </flux:select>
-
             </div>
         @endif
     </div>
@@ -493,40 +345,71 @@ new class extends Component
     @if ($showTrashed)
         <div class="mb-4 flex items-center gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 dark:border-red-800 dark:bg-red-900/20">
             <flux:icon name="trash" class="size-4 text-red-500" />
-            <p class="text-sm text-red-700 dark:text-red-400">{{ __('Showing deleted products. You can restore or permanently delete them.') }}</p>
+            <p class="text-sm text-red-700 dark:text-red-400">
+                {{ __('Showing deleted products. You can restore or permanently delete them.') }}
+            </p>
         </div>
     @endif
 
-    {{-- Info --}}
-    <div class="mb-2 flex items-center justify-between">
-        <p class="text-sm text-zinc-400">{{ number_format($this->products->total()) }} {{ __('products found') }}</p>
+    {{-- Résultats --}}
+    <div class="mb-3 flex items-center justify-between">
+        <p class="text-sm text-zinc-400">
+            {{ $this->products->total() }} {{ __('products found') }}
+        </p>
         @if ($search || $filterStatus || $filterCategory || $filterBrand || $filterSupplier || $filterFeatured !== '')
-            <button type="button"
-                wire:click="$set('search','');$set('filterStatus','');$set('filterCategory','');$set('filterBrand','');$set('filterSupplier','');$set('filterFeatured','')"
+            <button
+                type="button"
+                wire:click="$set('search', ''); $set('filterStatus', ''); $set('filterCategory', ''); $set('filterBrand', ''); $set('filterSupplier', ''); $set('filterFeatured', '')"
                 class="flex items-center gap-1 text-xs text-zinc-400 hover:text-zinc-600"
             >
-                <flux:icon name="x-mark" class="size-3" />{{ __('Clear filters') }}
+                <flux:icon name="x-mark" class="size-3" />
+                {{ __('Clear filters') }}
             </button>
         @endif
     </div>
 
-    {{-- Loading bar --}}
-    <div class="relative mb-3 h-0.5 overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-800">
-        <div
-            wire:loading
-            wire:target="search,sortBy,sortDirection,filterStatus,filterCategory,filterBrand,filterSupplier,filterFeatured,perPage,setViewMode,toggleTrashed,sort,gotoPage,previousPage,nextPage"
-            style="display:none; animation: loading-bar 0.9s ease-in-out infinite"
-            class="absolute inset-y-0 w-1/3 rounded-full bg-blue-500"
-        ></div>
-        <style>@keyframes loading-bar { 0%{transform:translateX(-100%)} 100%{transform:translateX(400%)} }</style>
+    {{-- Loading skeleton --}}
+    <div wire:loading.block wire:target="search,sortBy,sortDirection,filterStatus,filterCategory,filterBrand,filterSupplier,filterFeatured,perPage,setViewMode,toggleTrashed,sort,gotoPage,previousPage,nextPage">
+        @if ($viewMode === 'grid')
+            <div class="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+                @for ($s = 0; $s < $perPage; $s++)
+                    <div class="overflow-hidden rounded-xl border border-zinc-200 dark:border-zinc-700">
+                        <div class="skeleton aspect-square w-full"></div>
+                        <div class="space-y-2 p-3">
+                            <div class="skeleton h-4 w-3/4 rounded-md"></div>
+                            <div class="skeleton h-3 w-1/2 rounded-md"></div>
+                            <div class="flex items-center justify-between">
+                                <div class="skeleton h-4 w-16 rounded-md"></div>
+                                <div class="skeleton h-5 w-14 rounded-full"></div>
+                            </div>
+                        </div>
+                    </div>
+                @endfor
+            </div>
+        @else
+            <div class="overflow-hidden rounded-xl border border-zinc-200 dark:border-zinc-700">
+                @for ($s = 0; $s < min($perPage, 15); $s++)
+                    <div class="flex items-center gap-4 border-b border-zinc-100 px-4 py-3 last:border-0 dark:border-zinc-800">
+                        <div class="skeleton size-10 shrink-0 rounded-lg"></div>
+                        <div class="flex-1 space-y-2">
+                            <div class="skeleton h-4 w-48 rounded-md"></div>
+                            <div class="skeleton h-3 w-24 rounded-md"></div>
+                        </div>
+                        <div class="skeleton h-4 w-20 rounded-md"></div>
+                        <div class="skeleton h-5 w-16 rounded-full"></div>
+                        <div class="skeleton h-4 w-12 rounded-md"></div>
+                        <div class="skeleton size-7 rounded-md"></div>
+                    </div>
+                @endfor
+            </div>
+        @endif
     </div>
 
-    {{-- ══ GRID VIEW ══ --}}
-    @if ($viewMode === 'grid')
-        <div
-            wire:loading.class="content-loading"
-            wire:target="search,sortBy,sortDirection,filterStatus,filterCategory,filterBrand,filterSupplier,filterFeatured,perPage,setViewMode,toggleTrashed,sort,gotoPage,previousPage,nextPage"
-        >
+    {{-- Contenu réel --}}
+    <div wire:loading.remove wire:target="search,sortBy,sortDirection,filterStatus,filterCategory,filterBrand,filterSupplier,filterFeatured,perPage,setViewMode,toggleTrashed,sort,gotoPage,previousPage,nextPage">
+
+        {{-- ── GRID VIEW ── --}}
+        @if ($viewMode === 'grid')
             @if ($this->products->isNotEmpty())
                 <div class="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
                     @foreach ($this->products as $product)
@@ -534,43 +417,38 @@ new class extends Component
                             wire:key="grid-{{ $product->id }}"
                             class="group relative overflow-hidden rounded-xl border border-zinc-200 bg-white transition-all hover:border-zinc-300 hover:shadow-md dark:border-zinc-700 dark:bg-zinc-900 {{ $showTrashed ? 'opacity-60' : '' }}"
                         >
-                            {{-- Image avec skeleton Alpine --}}
+                            {{-- Image avec lazy load --}}
                             <div class="relative aspect-square overflow-hidden bg-zinc-100 dark:bg-zinc-800">
                                 @if ($product->primaryImage?->image_path)
-                                    <div x-data="{ loaded: false }" class="size-full">
-                                        {{-- Skeleton pulsant — disparaît à la fin du chargement image --}}
-                                        <div
-                                            x-show="!loaded"
-                                            class="absolute inset-0 animate-pulse bg-zinc-200 dark:bg-zinc-700"
-                                        ></div>
-                                        <img
-                                            src="{{ $product->primaryImage->image_path }}"
-                                            alt="{{ $product->primaryImage->alt_text ?? $product->name }}"
-                                            loading="lazy"
-                                            class="size-full object-cover transition-transform duration-300 group-hover:scale-105"
-                                            x-bind:class="loaded ? 'opacity-100' : 'opacity-0'"
-                                            x-on:load="loaded = true"
-                                            x-on:error="loaded = true"
-                                            style="transition: opacity 0.35s ease"
-                                        />
-                                    </div>
+                                    <div class="skeleton absolute inset-0" x-data x-ref="skeleton"></div>
+                                    <img
+                                        src="{{ $product->primaryImage->image_path }}"
+                                        alt="{{ $product->primaryImage->alt_text ?? $product->name }}"
+                                        loading="lazy"
+                                        class="img-lazy size-full object-cover transition-transform duration-300 group-hover:scale-105"
+                                        x-data
+                                        x-on:load="$el.classList.add('loaded'); $el.previousElementSibling?.remove()"
+                                        x-on:error="$el.classList.add('loaded'); $el.previousElementSibling?.remove()"
+                                    />
                                 @else
                                     <div class="flex size-full items-center justify-center">
                                         <flux:icon name="photo" class="size-10 text-zinc-300" />
                                     </div>
                                 @endif
 
-                                {{-- Badges --}}
+                                {{-- Badges overlay --}}
                                 <div class="absolute left-2 top-2 flex flex-col gap-1">
                                     @if ($product->is_featured)
                                         <flux:badge size="sm" color="yellow">★</flux:badge>
                                     @endif
                                     @if ($product->compare_at_price && $product->compare_at_price > $product->base_price)
-                                        <flux:badge size="sm" color="red">-{{ (int) round((1 - $product->base_price / $product->compare_at_price) * 100) }}%</flux:badge>
+                                        <flux:badge size="sm" color="red">
+                                            -{{ (int) round((1 - $product->base_price / $product->compare_at_price) * 100) }}%
+                                        </flux:badge>
                                     @endif
                                 </div>
 
-                                {{-- Actions --}}
+                                {{-- Actions overlay --}}
                                 <div class="absolute right-2 top-2 opacity-0 transition-opacity group-hover:opacity-100">
                                     <flux:dropdown>
                                         <flux:button variant="filled" size="sm" icon="ellipsis-vertical" class="!size-7 !p-0 shadow-sm" />
@@ -590,11 +468,16 @@ new class extends Component
                                 </div>
                             </div>
 
+                            {{-- Infos --}}
                             <div class="p-3">
-                                <p class="truncate text-sm font-medium text-zinc-800 dark:text-zinc-200">{{ $product->name }}</p>
+                                <p class="truncate text-sm font-medium text-zinc-800 dark:text-zinc-200">
+                                    {{ $product->name }}
+                                </p>
                                 <p class="mt-0.5 truncate text-xs text-zinc-400">
                                     {{ $product->category?->name ?? '—' }}
-                                    @if ($product->brand) · {{ $product->brand->name }} @endif
+                                    @if ($product->brand)
+                                        · {{ $product->brand->name }}
+                                    @endif
                                 </p>
                                 <div class="mt-2 flex items-center justify-between">
                                     <div>
@@ -618,57 +501,19 @@ new class extends Component
                     @endforeach
                 </div>
 
-                {{-- Pagination --}}
-                @php $pg = $this->paginationData(); @endphp
-                <div class="mt-6 flex items-center justify-between">
-                    <p class="text-sm text-zinc-400">
-                        {{ __('Showing') }} <span class="font-medium text-zinc-600 dark:text-zinc-300">{{ $pg['firstItem'] }}</span>
-                        {{ __('to') }} <span class="font-medium text-zinc-600 dark:text-zinc-300">{{ $pg['lastItem'] }}</span>
-                        {{ __('of') }} <span class="font-medium text-zinc-600 dark:text-zinc-300">{{ number_format($pg['total']) }}</span>
-                        {{ __('results') }}
-                    </p>
-                    <div class="flex items-center gap-1">
-                        @if ($pg['onFirst'])
-                            <span class="flex size-8 items-center justify-center rounded-lg text-zinc-300 dark:text-zinc-600"><flux:icon name="chevron-left" class="size-4" /></span>
-                        @else
-                            <button wire:click="previousPage" class="flex size-8 items-center justify-center rounded-lg text-zinc-500 transition hover:bg-zinc-100 dark:hover:bg-zinc-800"><flux:icon name="chevron-left" class="size-4" /></button>
-                        @endif
-                        @php $prev = null; @endphp
-                        @foreach ($pg['pages'] as $page)
-                            @if ($prev !== null && $page - $prev > 1)
-                                <span class="flex size-8 items-center justify-center text-sm text-zinc-400">…</span>
-                            @endif
-                            @if ($page === $pg['current'])
-                                <span class="flex size-8 items-center justify-center rounded-lg bg-zinc-800 text-sm font-semibold text-white dark:bg-zinc-200 dark:text-zinc-800">{{ $page }}</span>
-                            @else
-                                <button wire:click="gotoPage({{ $page }})" class="flex size-8 items-center justify-center rounded-lg text-sm text-zinc-600 transition hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800">{{ $page }}</button>
-                            @endif
-                            @php $prev = $page; @endphp
-                        @endforeach
-                        @if ($pg['hasMore'])
-                            <button wire:click="nextPage" class="flex size-8 items-center justify-center rounded-lg text-zinc-500 transition hover:bg-zinc-100 dark:hover:bg-zinc-800"><flux:icon name="chevron-right" class="size-4" /></button>
-                        @else
-                            <span class="flex size-8 items-center justify-center rounded-lg text-zinc-300 dark:text-zinc-600"><flux:icon name="chevron-right" class="size-4" /></span>
-                        @endif
-                    </div>
-                </div>
+                <div class="mt-6">{{ $this->products->links() }}</div>
 
             @else
+                {{-- Empty grid --}}
                 <div class="flex flex-col items-center justify-center rounded-xl border border-dashed border-zinc-200 py-20 text-center dark:border-zinc-700">
                     <flux:icon name="{{ $showTrashed ? 'trash' : 'cube' }}" class="mb-3 size-12 text-zinc-300 dark:text-zinc-600" />
                     <p class="text-sm font-medium text-zinc-500 dark:text-zinc-400">{{ __('No products found.') }}</p>
-                    <p class="mt-1 text-sm text-zinc-400">{{ __('Try adjusting your filters or add a new product.') }}</p>
                 </div>
             @endif
-        </div>
 
-    {{-- ══ LIST VIEW ══ --}}
-    @else
-        <div
-            wire:loading.class="content-loading"
-            wire:target="search,sortBy,sortDirection,filterStatus,filterCategory,filterBrand,filterSupplier,filterFeatured,perPage,setViewMode,toggleTrashed,sort,gotoPage,previousPage,nextPage"
-        >
-            <flux:table>
+        {{-- ── LIST VIEW ── --}}
+        @else
+            <flux:table :paginate="$this->products">
                 <flux:table.columns>
                     <flux:table.column sortable :sorted="$sortBy === 'name'" :direction="$sortDirection" wire:click="sort('name')">{{ __('Product') }}</flux:table.column>
                     <flux:table.column>{{ __('Category / Brand') }}</flux:table.column>
@@ -689,27 +534,29 @@ new class extends Component
                     @forelse ($this->products as $product)
                         <flux:table.row :key="$product->id" class="{{ $showTrashed ? 'opacity-60' : '' }}">
 
+                            {{-- Image + Nom avec lazy load --}}
                             <flux:table.cell>
                                 <div class="flex items-center gap-3">
-                                    {{-- Image avec skeleton Alpine --}}
-                                    <div class="relative size-10 shrink-0 overflow-hidden rounded-lg bg-zinc-100 dark:bg-zinc-800">
+                                    <div
+                                        class="relative size-10 shrink-0 overflow-hidden rounded-lg bg-zinc-100 dark:bg-zinc-800"
+                                        x-data="{ loaded: false }"
+                                    >
                                         @if ($product->primaryImage?->image_path)
-                                            <div x-data="{ loaded: false }" class="size-full">
-                                                <div
-                                                    x-show="!loaded"
-                                                    class="absolute inset-0 animate-pulse rounded-lg bg-zinc-200 dark:bg-zinc-700"
-                                                ></div>
-                                                <img
-                                                    src="{{ $product->primaryImage->image_path }}"
-                                                    alt="{{ $product->name }}"
-                                                    loading="lazy"
-                                                    class="size-full object-cover"
-                                                    x-bind:class="loaded ? 'opacity-100' : 'opacity-0'"
-                                                    x-on:load="loaded = true"
-                                                    x-on:error="loaded = true"
-                                                    style="transition: opacity 0.3s ease"
-                                                />
-                                            </div>
+                                            {{-- Skeleton placeholder --}}
+                                            <div
+                                                class="skeleton absolute inset-0 rounded-lg"
+                                                x-show="!loaded"
+                                            ></div>
+                                            <img
+                                                src="{{ $product->primaryImage->image_path }}"
+                                                alt="{{ $product->primaryImage->alt_text ?? $product->name }}"
+                                                loading="lazy"
+                                                class="size-full object-cover"
+                                                x-on:load="loaded = true"
+                                                x-on:error="loaded = true"
+                                                x-bind:class="loaded ? 'opacity-100' : 'opacity-0'"
+                                                style="transition: opacity 0.3s ease"
+                                            />
                                         @else
                                             <div class="flex size-full items-center justify-center">
                                                 <flux:icon name="photo" class="size-4 text-zinc-300" />
@@ -719,7 +566,9 @@ new class extends Component
                                     <div class="min-w-0">
                                         <p class="truncate text-sm font-medium text-zinc-800 dark:text-zinc-200">
                                             {{ $product->name }}
-                                            @if ($product->is_featured) <span class="text-yellow-400">★</span> @endif
+                                            @if ($product->is_featured)
+                                                <span class="text-yellow-400">★</span>
+                                            @endif
                                         </p>
                                         @if ($product->sku)
                                             <p class="font-mono text-xs text-zinc-400">{{ $product->sku }}</p>
@@ -728,6 +577,7 @@ new class extends Component
                                 </div>
                             </flux:table.cell>
 
+                            {{-- Category / Brand --}}
                             <flux:table.cell>
                                 <div class="space-y-1">
                                     @if ($product->category)
@@ -742,6 +592,7 @@ new class extends Component
                                 </div>
                             </flux:table.cell>
 
+                            {{-- Supplier --}}
                             <flux:table.cell>
                                 @if ($product->supplier)
                                     <div class="flex items-center gap-2">
@@ -753,6 +604,7 @@ new class extends Component
                                 @endif
                             </flux:table.cell>
 
+                            {{-- Price --}}
                             <flux:table.cell>
                                 <p class="text-sm font-semibold text-zinc-800 dark:text-zinc-200">
                                     {{ number_format($product->base_price, 2) }}
@@ -769,12 +621,14 @@ new class extends Component
                                         {{ ucfirst($product->status ?? 'pending') }}
                                     </flux:badge>
                                 </flux:table.cell>
-                                <flux:table.cell class="text-sm text-zinc-500">{{ number_format($product->total_sold ?? 0) }}</flux:table.cell>
+                                <flux:table.cell class="text-sm text-zinc-500 dark:text-zinc-400">
+                                    {{ number_format($product->total_sold ?? 0) }}
+                                </flux:table.cell>
                                 <flux:table.cell>
                                     @if ($product->average_rating)
                                         <div class="flex items-center gap-1">
                                             <flux:icon name="star" variant="solid" class="size-3.5 text-yellow-400" />
-                                            <span class="text-sm">{{ number_format($product->average_rating, 1) }}</span>
+                                            <span class="text-sm text-zinc-600 dark:text-zinc-400">{{ number_format($product->average_rating, 1) }}</span>
                                             <span class="text-xs text-zinc-400">({{ $product->total_reviews ?? 0 }})</span>
                                         </div>
                                     @else
@@ -787,7 +641,7 @@ new class extends Component
                                 </flux:table.cell>
                             @endif
 
-                            <flux:table.cell class="whitespace-nowrap text-sm text-zinc-500">
+                            <flux:table.cell class="whitespace-nowrap text-sm text-zinc-500 dark:text-zinc-400">
                                 {{ $product->created_at->format('d M Y') }}
                             </flux:table.cell>
 
@@ -825,13 +679,13 @@ new class extends Component
                                 <div class="flex flex-col items-center justify-center py-12 text-center">
                                     <flux:icon name="{{ $showTrashed ? 'trash' : 'cube' }}" class="mb-3 size-10 text-zinc-300 dark:text-zinc-600" />
                                     @if ($showTrashed)
-                                        <p class="text-sm font-medium text-zinc-500">{{ __('No deleted products.') }}</p>
+                                        <p class="text-sm font-medium text-zinc-500 dark:text-zinc-400">{{ __('No deleted products.') }}</p>
                                     @elseif ($search || $filterStatus || $filterCategory || $filterBrand || $filterSupplier || $filterFeatured !== '')
-                                        <p class="text-sm font-medium text-zinc-500">{{ __('No results for the applied filters.') }}</p>
-                                        <p class="mt-1 text-sm text-zinc-400">{{ __('Try modifying your search or filters.') }}</p>
+                                        <p class="text-sm font-medium text-zinc-500 dark:text-zinc-400">{{ __('No results for the applied filters.') }}</p>
+                                        <p class="mt-1 text-sm text-zinc-400 dark:text-zinc-500">{{ __('Try modifying your search or filters.') }}</p>
                                     @else
-                                        <p class="text-sm font-medium text-zinc-500">{{ __('No products found.') }}</p>
-                                        <p class="mt-1 text-sm text-zinc-400">{{ __('Start by adding a product.') }}</p>
+                                        <p class="text-sm font-medium text-zinc-500 dark:text-zinc-400">{{ __('No products found.') }}</p>
+                                        <p class="mt-1 text-sm text-zinc-400 dark:text-zinc-500">{{ __('Start by adding a product.') }}</p>
                                     @endif
                                 </div>
                             </flux:table.cell>
@@ -839,43 +693,21 @@ new class extends Component
                     @endforelse
                 </flux:table.rows>
             </flux:table>
+        @endif
 
-            {{-- Pagination list --}}
-            @php $pg = $this->paginationData(); @endphp
-            <div class="mt-5 flex items-center justify-between">
-                <p class="text-sm text-zinc-400">
-                    {{ __('Showing') }} <span class="font-medium text-zinc-600 dark:text-zinc-300">{{ $pg['firstItem'] }}</span>
-                    {{ __('to') }} <span class="font-medium text-zinc-600 dark:text-zinc-300">{{ $pg['lastItem'] }}</span>
-                    {{ __('of') }} <span class="font-medium text-zinc-600 dark:text-zinc-300">{{ number_format($pg['total']) }}</span>
-                    {{ __('results') }}
-                </p>
-                <div class="flex items-center gap-1">
-                    @if ($pg['onFirst'])
-                        <span class="flex size-8 items-center justify-center rounded-lg text-zinc-300 dark:text-zinc-600"><flux:icon name="chevron-left" class="size-4" /></span>
-                    @else
-                        <button wire:click="previousPage" class="flex size-8 items-center justify-center rounded-lg text-zinc-500 transition hover:bg-zinc-100 dark:hover:bg-zinc-800"><flux:icon name="chevron-left" class="size-4" /></button>
-                    @endif
-                    @php $prev = null; @endphp
-                    @foreach ($pg['pages'] as $page)
-                        @if ($prev !== null && $page - $prev > 1)
-                            <span class="flex size-8 items-center justify-center text-sm text-zinc-400">…</span>
-                        @endif
-                        @if ($page === $pg['current'])
-                            <span class="flex size-8 items-center justify-center rounded-lg bg-zinc-800 text-sm font-semibold text-white dark:bg-zinc-200 dark:text-zinc-800">{{ $page }}</span>
-                        @else
-                            <button wire:click="gotoPage({{ $page }})" class="flex size-8 items-center justify-center rounded-lg text-sm text-zinc-600 transition hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800">{{ $page }}</button>
-                        @endif
-                        @php $prev = $page; @endphp
-                    @endforeach
-                    @if ($pg['hasMore'])
-                        <button wire:click="nextPage" class="flex size-8 items-center justify-center rounded-lg text-zinc-500 transition hover:bg-zinc-100 dark:hover:bg-zinc-800"><flux:icon name="chevron-right" class="size-4" /></button>
-                    @else
-                        <span class="flex size-8 items-center justify-center rounded-lg text-zinc-300 dark:text-zinc-600"><flux:icon name="chevron-right" class="size-4" /></span>
-                    @endif
-                </div>
-            </div>
-        </div>
-    @endif
+    </div>
+
+    {{-- Script lazy load natif --}}
+    <script>
+        document.addEventListener('livewire:navigated', () => {
+            document.querySelectorAll('img[loading="lazy"]').forEach(img => {
+                if (img.complete) {
+                    img.classList.add('loaded');
+                    img.previousElementSibling?.remove();
+                }
+            });
+        });
+    </script>
 
     <livewire:pages::products.create />
     <livewire:pages::products.edit />
