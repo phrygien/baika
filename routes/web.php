@@ -29,6 +29,9 @@ Route::middleware(["auth", "verified"])->group(function () {
 
     // Categories
     Route::livewire("categories", "pages::categories.page")->name("categories");
+
+    // Brands
+    Route::livewire("brands", "pages::brands.page")->name("brands");
 });
 
 require __DIR__ . "/settings.php";
