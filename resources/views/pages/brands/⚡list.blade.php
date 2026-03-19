@@ -25,6 +25,9 @@ new class extends Component
     #[Url(history: true)]
     public string $filterFeatured = '';
 
+    #[Url(history: true)]
+    public int $perPage = 15;
+
     public function sort(string $column): void
     {
         if ($this->sortBy === $column) {
@@ -39,6 +42,7 @@ new class extends Component
     public function updatingSearch(): void { $this->resetPage(); }
     public function updatingFilterActive(): void { $this->resetPage(); }
     public function updatingFilterFeatured(): void { $this->resetPage(); }
+    public function updatingPerPage(): void { $this->resetPage(); }
 
     public function toggleActive(int $id): void
     {
@@ -94,7 +98,13 @@ new class extends Component
                 $q->where('is_featured', (bool) $this->filterFeatured)
             )
             ->orderBy($this->sortBy, $this->sortDirection)
-            ->paginate(15);
+            ->paginate($this->perPage);
+    }
+
+    public function formatWebsite(string $url): string
+    {
+        $host = parse_url($url, PHP_URL_HOST);
+        return $host ? preg_replace('/^www\./', '', $host) : $url;
     }
 };
 ?>
@@ -129,6 +139,18 @@ new class extends Component
         </flux:select>
 
         <flux:spacer />
+
+        {{-- Per page --}}
+        <div class="flex items-center gap-2">
+            <span class="text-sm text-zinc-400">{{ __('Show') }}</span>
+            <flux:select wire:model.live="perPage" class="w-20">
+                <flux:select.option value="10">10</flux:select.option>
+                <flux:select.option value="15">15</flux:select.option>
+                <flux:select.option value="25">25</flux:select.option>
+                <flux:select.option value="50">50</flux:select.option>
+                <flux:select.option value="100">100</flux:select.option>
+            </flux:select>
+        </div>
 
         <flux:button variant="primary" icon="plus" wire:click="$dispatch('create-brand')">
             {{ __('Add Brand') }}
@@ -184,7 +206,7 @@ new class extends Component
                                 <p class="text-sm font-medium text-zinc-800 dark:text-zinc-200">
                                     {{ $brand->name }}
                                 </p>
-                                <p class="text-xs text-zinc-400">{{ $brand->slug }}</p>
+                                <p class="font-mono text-xs text-zinc-400">{{ $brand->slug }}</p>
                             </div>
                         </div>
                     </flux:table.cell>
@@ -234,7 +256,7 @@ new class extends Component
                                     {{ __('Edit') }}
                                 </flux:menu.item>
                                 <flux:menu.item
-                                    icon="{{ $brand->is_featured ? 'star' : 'star' }}"
+                                    icon="star"
                                     wire:click="toggleFeatured({{ $brand->id }})"
                                 >
                                     {{ $brand->is_featured ? __('Unfeature') : __('Feature') }}
