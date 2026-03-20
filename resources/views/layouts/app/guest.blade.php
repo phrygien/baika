@@ -11,15 +11,14 @@
             <flux:brand href="#" logo="https://fluxui.dev/img/demo/dark-mode-logo.png" name="Acme Inc." class="max-lg:hidden! hidden dark:flex" />
 
             <flux:navbar class="-mb-px max-lg:hidden">
-                <flux:navbar.item icon="home" href="#" current>Home</flux:navbar.item>
-                <flux:navbar.item icon="inbox" badge="12" href="#">Inbox</flux:navbar.item>
-                <flux:navbar.item icon="document-text" href="#">Documents</flux:navbar.item>
-                <flux:navbar.item icon="calendar" href="#">Calendar</flux:navbar.item>
+                <flux:navbar.item icon="hand-thumb-up" href="#" current>{{ __('Meilleurs ventes')}}</flux:navbar.item>
+                <flux:navbar.item icon="truck" href="#">{{ __('Entrepot local')}}</flux:navbar.item>
+                <flux:navbar.item icon="star" href="#">{{ __('Notes 5 etoiles') }}</flux:navbar.item>
 
                 <flux:separator vertical variant="subtle" class="my-2"/>
 
                 <flux:dropdown class="max-lg:hidden">
-                    <flux:navbar.item icon:trailing="chevron-down">Favorites</flux:navbar.item>
+                    <flux:navbar.item icon:trailing="chevron-down">{{ __('Categories') }}</flux:navbar.item>
 
                     <flux:navmenu>
                         <flux:navmenu.item href="#">Marketing site</flux:navmenu.item>
@@ -32,8 +31,8 @@
             <flux:spacer />
 
             <flux:navbar class="me-4">
-                <flux:navbar.item icon="magnifying-glass" href="#" label="Search" />
-                <flux:navbar.item class="max-lg:hidden" icon="cog-6-tooth" href="#" label="Settings" />
+                <flux:input icon="magnifying-glass" placeholder="Search orders" />
+                <flux:navbar.item class="max-lg:hidden" icon="user" href="#" label="{{ __('Se connecter / S\'inscrire') }}" />
                 <flux:navbar.item class="max-lg:hidden" icon="information-circle" href="#" label="Help" />
             </flux:navbar>
 
@@ -66,7 +65,7 @@
             </flux:sidebar.header>
 
             <flux:sidebar.nav>
-                <flux:sidebar.item icon="home" href="#" current>Home</flux:sidebar.item>
+                <flux:sidebar.item icon="home" href="#" current>{{ __('Meilleurs ventes')}}</flux:sidebar.item>
                 <flux:sidebar.item icon="inbox" badge="12" href="#">Inbox</flux:sidebar.item>
                 <flux:sidebar.item icon="document-text" href="#">Documents</flux:sidebar.item>
                 <flux:sidebar.item icon="calendar" href="#">Calendar</flux:sidebar.item>
