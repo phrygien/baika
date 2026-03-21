@@ -37,4 +37,7 @@ Route::middleware(["auth", "verified"])->group(function () {
     Route::livewire("products", "pages::products.page")->name("products");
 });
 
+// Public routes
+Route::view("products", "shared.product")->name("products");
+
 require __DIR__ . "/settings.php";
