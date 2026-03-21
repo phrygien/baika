@@ -127,97 +127,22 @@ new class extends Component
     #[Computed]
     public function products()
     {
-        // ── Colonnes à sélectionner en Eloquent ──────────────────────────
-        $select = [
-            'id', 'name', 'slug', 'sku', 'base_price', 'compare_at_price',
-            'currency', 'status', 'is_featured', 'is_active',
-            'total_sold', 'total_reviews', 'average_rating',
-            'supplier_id', 'category_id', 'brand_id',
-            'created_at', 'deleted_at',
-        ];
-
-        $eagerLoad = [
-            'supplier:id,shop_name,logo',
-            'category:id,name',
-            'brand:id,name',
-            'primaryImage:id,product_id,image_path,alt_text,is_primary',
-        ];
-
-        // ─────────────────────────────────────────────────────────────────
-        // CHEMIN A : Recherche texte → Typesense Scout
-        // ─────────────────────────────────────────────────────────────────
-        if (!$this->showTrashed && trim($this->search) !== '') {
-
-            // Construire les filtres Typesense
-            $filterBy = [];
-
-            if ($this->filterStatus) {
-                $filterBy[] = "status:={$this->filterStatus}";
-            }
-            if ($this->filterCategory) {
-                $filterBy[] = "category_id:={$this->filterCategory}";
-            }
-            if ($this->filterBrand) {
-                $filterBy[] = "brand_id:={$this->filterBrand}";
-            }
-            if ($this->filterSupplier) {
-                $filterBy[] = "supplier_id:={$this->filterSupplier}";
-            }
-            if ($this->filterFeatured !== '') {
-                $filterBy[] = 'is_featured:=' . ($this->filterFeatured === '1' ? 'true' : 'false');
-            }
-
-            // Mapping colonnes SQL → champs Typesense
-            $sortMap = [
-                'created_at'     => 'created_at',
-                'base_price'     => 'base_price',
-                'total_sold'     => 'total_sold',
-                'average_rating' => 'average_rating',
-                'total_views'    => 'total_views',
-                'name'           => 'name',
-            ];
-
-            $sortField = $sortMap[$this->sortBy] ?? 'created_at';
-            $sortBy    = "{$sortField}:{$this->sortDirection}";
-
-            // Page courante Livewire (1-based)
-            $page = $this->getPage();
-
-            try {
-                $results = Product::search($this->search)
-                    ->options([
-                        'query_by'         => 'name,sku,short_description,brand_name,category_name,supplier_name',
-                        'query_by_weights' => '10,8,3,4,3,2',
-                        'filter_by'        => implode(' && ', $filterBy) ?: '',
-                        'sort_by'          => $sortBy,
-                        'per_page'         => $this->perPage,
-                        'page'             => $page,
-                        'highlight_fields' => 'none', // désactiver pour perf
-                    ])
-                    ->paginate($this->perPage, 'page', $page);
-
-                // Hydrate les relations Eloquent sur les résultats Scout
-                $results->load($eagerLoad);
-
-                return $results;
-
-            } catch (\Throwable $e) {
-                // Fallback Eloquent si Typesense down
-                return $this->eloquentFallback($select, $eagerLoad);
-            }
-        }
-
-        // ─────────────────────────────────────────────────────────────────
-        // CHEMIN B : Pas de recherche texte → Eloquent direct (+ index DB)
-        // ─────────────────────────────────────────────────────────────────
-        return $this->eloquentFallback($select, $eagerLoad);
-    }
-
-    protected function eloquentFallback(array $select, array $eagerLoad)
-    {
         return Product::query()
-            ->select($select)
-            ->with($eagerLoad)
+            // ── Colonnes minimales — pas de SELECT * sur 60k rows ──────────
+            ->select([
+                'id', 'name', 'slug', 'sku', 'base_price', 'compare_at_price',
+                'currency', 'status', 'is_featured', 'is_active',
+                'total_sold', 'total_reviews', 'average_rating',
+                'supplier_id', 'category_id', 'brand_id',
+                'created_at', 'deleted_at',
+            ])
+            // ── Eager loading minimal ──────────────────────────────────────
+            ->with([
+                'supplier:id,shop_name,logo',
+                'category:id,name',
+                'brand:id,name',
+                'primaryImage:id,product_id,image_path,alt_text,is_primary',
+            ])
             ->when($this->showTrashed, fn($q) => $q->onlyTrashed())
             ->when($this->search, fn($q) =>
                 $q->where(fn($inner) =>
@@ -321,21 +246,8 @@ new class extends Component
     <div class="mb-4 space-y-3">
 
         <div class="flex flex-wrap items-center gap-3">
-            <div class="relative w-72">
-                <flux:input
-                    wire:model.live.debounce.400ms="search"
-                    icon="magnifying-glass"
-                    placeholder="{{ __('Search name, SKU, brand...') }}"
-                />
-                {{-- Badge Typesense quand recherche active --}}
-                @if (trim($search) !== '' && !$showTrashed)
-                    <div class="absolute right-2 top-1/2 -translate-y-1/2">
-                        <flux:badge size="sm" color="blue" inset="top bottom">
-                            <flux:icon name="bolt" class="size-2.5" />
-                            Typesense
-                        </flux:badge>
-                    </div>
-                @endif
+            <div class="w-72">
+                <flux:input wire:model.live.debounce.400ms="search" icon="magnifying-glass" placeholder="{{ __('Search by name, SKU...') }}" />
             </div>
 
             <flux:spacer />
@@ -375,9 +287,7 @@ new class extends Component
             </flux:button>
 
             @if (!$showTrashed)
-                <flux:button variant="primary" icon="plus" wire:click="$dispatch('create-product')">
-                    {{ __('Add Product') }}
-                </flux:button>
+                <flux:button variant="primary" icon="plus" wire:click="$dispatch('create-product')">{{ __('Add Product') }}</flux:button>
             @endif
         </div>
 
@@ -398,9 +308,7 @@ new class extends Component
                         <flux:icon name="chevron-down" class="size-3.5 shrink-0 text-zinc-400" />
                     </button>
                     <div x-show="open" x-transition:enter="transition ease-out duration-100" x-transition:enter-start="opacity-0 translate-y-1" x-transition:enter-end="opacity-100 translate-y-0" x-transition:leave="transition ease-in duration-75" x-transition:leave-start="opacity-100 translate-y-0" x-transition:leave-end="opacity-0 translate-y-1" class="absolute left-0 top-10 z-50 w-72 overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-lg dark:border-zinc-700 dark:bg-zinc-900" style="display:none">
-                        <div class="border-b border-zinc-100 p-2 dark:border-zinc-800">
-                            <input type="text" x-model="search" placeholder="{{ __('Search...') }}" class="w-full rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-1.5 text-sm outline-none focus:border-blue-400 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200" x-on:click.stop x-ref="catInput" x-init="$watch('open',v=>v&&$nextTick(()=>$refs.catInput?.focus()))" />
-                        </div>
+                        <div class="border-b border-zinc-100 p-2 dark:border-zinc-800"><input type="text" x-model="search" placeholder="{{ __('Search...') }}" class="w-full rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-1.5 text-sm outline-none focus:border-blue-400 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200" x-on:click.stop x-ref="catInput" x-init="$watch('open',v=>v&&$nextTick(()=>$refs.catInput?.focus()))" /></div>
                         <div class="max-h-56 overflow-y-auto py-1">
                             <button type="button" wire:click="$set('filterCategory','')" x-on:click="open=false;search=''" class="w-full px-3 py-2 text-left text-sm text-zinc-500 hover:bg-zinc-50 dark:hover:bg-zinc-800">{{ __('All categories') }}</button>
                             @foreach($this->allCategories as $category)
@@ -421,9 +329,7 @@ new class extends Component
                         <flux:icon name="chevron-down" class="size-3.5 shrink-0 text-zinc-400" />
                     </button>
                     <div x-show="open" x-transition:enter="transition ease-out duration-100" x-transition:enter-start="opacity-0 translate-y-1" x-transition:enter-end="opacity-100 translate-y-0" x-transition:leave="transition ease-in duration-75" x-transition:leave-start="opacity-100 translate-y-0" x-transition:leave-end="opacity-0 translate-y-1" class="absolute left-0 top-10 z-50 w-56 overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-lg dark:border-zinc-700 dark:bg-zinc-900" style="display:none">
-                        <div class="border-b border-zinc-100 p-2 dark:border-zinc-800">
-                            <input type="text" x-model="search" placeholder="{{ __('Search...') }}" class="w-full rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-1.5 text-sm outline-none focus:border-blue-400 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200" x-on:click.stop x-ref="brandInput" x-init="$watch('open',v=>v&&$nextTick(()=>$refs.brandInput?.focus()))" />
-                        </div>
+                        <div class="border-b border-zinc-100 p-2 dark:border-zinc-800"><input type="text" x-model="search" placeholder="{{ __('Search...') }}" class="w-full rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-1.5 text-sm outline-none focus:border-blue-400 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200" x-on:click.stop x-ref="brandInput" x-init="$watch('open',v=>v&&$nextTick(()=>$refs.brandInput?.focus()))" /></div>
                         <div class="max-h-56 overflow-y-auto py-1">
                             <button type="button" wire:click="$set('filterBrand','')" x-on:click="open=false;search=''" class="w-full px-3 py-2 text-left text-sm text-zinc-500 hover:bg-zinc-50 dark:hover:bg-zinc-800">{{ __('All brands') }}</button>
                             @foreach($this->allBrands as $brand)
@@ -440,9 +346,7 @@ new class extends Component
                         <flux:icon name="chevron-down" class="size-3.5 shrink-0 text-zinc-400" />
                     </button>
                     <div x-show="open" x-transition:enter="transition ease-out duration-100" x-transition:enter-start="opacity-0 translate-y-1" x-transition:enter-end="opacity-100 translate-y-0" x-transition:leave="transition ease-in duration-75" x-transition:leave-start="opacity-100 translate-y-0" x-transition:leave-end="opacity-0 translate-y-1" class="absolute left-0 top-10 z-50 w-64 overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-lg dark:border-zinc-700 dark:bg-zinc-900" style="display:none">
-                        <div class="border-b border-zinc-100 p-2 dark:border-zinc-800">
-                            <input type="text" x-model="search" placeholder="{{ __('Search...') }}" class="w-full rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-1.5 text-sm outline-none focus:border-blue-400 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200" x-on:click.stop x-ref="supplierInput" x-init="$watch('open',v=>v&&$nextTick(()=>$refs.supplierInput?.focus()))" />
-                        </div>
+                        <div class="border-b border-zinc-100 p-2 dark:border-zinc-800"><input type="text" x-model="search" placeholder="{{ __('Search...') }}" class="w-full rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-1.5 text-sm outline-none focus:border-blue-400 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200" x-on:click.stop x-ref="supplierInput" x-init="$watch('open',v=>v&&$nextTick(()=>$refs.supplierInput?.focus()))" /></div>
                         <div class="max-h-56 overflow-y-auto py-1">
                             <button type="button" wire:click="$set('filterSupplier','')" x-on:click="open=false;search=''" class="w-full px-3 py-2 text-left text-sm text-zinc-500 hover:bg-zinc-50 dark:hover:bg-zinc-800">{{ __('All suppliers') }}</button>
                             @foreach($this->allSuppliers as $supplier)
@@ -474,26 +378,12 @@ new class extends Component
     @if ($showTrashed)
         <div class="mb-4 flex items-center gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 dark:border-red-800 dark:bg-red-900/20">
             <flux:icon name="trash" class="size-4 text-red-500" />
-            <p class="text-sm text-red-700 dark:text-red-400">{{ __('Showing deleted products. Typesense search disabled in trash mode.') }}</p>
+            <p class="text-sm text-red-700 dark:text-red-400">{{ __('Showing deleted products.') }}</p>
         </div>
     @endif
 
-    {{-- Info + moteur actif --}}
-    <div class="mb-2 flex items-center justify-between" hidden>
-        <div class="flex items-center gap-2">
-            <p class="text-sm text-zinc-400">{{ number_format($this->products->total()) }} {{ __('products found') }}</p>
-            @if (trim($search) !== '' && !$showTrashed)
-                <flux:badge size="sm" color="blue" inset="top bottom">
-                    <flux:icon name="bolt" class="size-2.5" />
-                    {{ __('Typesense') }}
-                </flux:badge>
-            @else
-                <flux:badge size="sm" color="zinc" inset="top bottom">
-                    <flux:icon name="circle-stack" class="size-2.5" />
-                    {{ __('MySQL') }}
-                </flux:badge>
-            @endif
-        </div>
+    <div class="mb-2 flex items-center justify-between">
+        <p class="text-sm text-zinc-400">{{ number_format($this->products->total()) }} {{ __('products found') }}</p>
         @if ($search || $filterStatus || $filterCategory || $filterBrand || $filterSupplier || $filterFeatured !== '')
             <button type="button" wire:click="$set('search','');$set('filterStatus','');$set('filterCategory','');$set('filterBrand','');$set('filterSupplier','');$set('filterFeatured','')" class="flex items-center gap-1 text-xs text-zinc-400 hover:text-zinc-600">
                 <flux:icon name="x-mark" class="size-3" />{{ __('Clear filters') }}
@@ -503,16 +393,14 @@ new class extends Component
 
     {{-- Loading bar --}}
     <div class="relative mb-3 h-0.5 overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-800">
-        <div
-            wire:loading
-            wire:target="search,sortBy,sortDirection,filterStatus,filterCategory,filterBrand,filterSupplier,filterFeatured,perPage,setViewMode,toggleTrashed,sort,gotoPage,previousPage,nextPage"
+        <div wire:loading wire:target="search,sortBy,sortDirection,filterStatus,filterCategory,filterBrand,filterSupplier,filterFeatured,perPage,setViewMode,toggleTrashed,sort,gotoPage,previousPage,nextPage"
             style="display:none; animation: loading-bar 0.9s ease-in-out infinite"
             class="absolute inset-y-0 w-1/3 rounded-full bg-blue-500"
         ></div>
         <style>@keyframes loading-bar { 0%{transform:translateX(-100%)} 100%{transform:translateX(400%)} }</style>
     </div>
 
-    {{-- Skeleton GRID --}}
+    {{-- ══ Skeleton GRID — uniquement sur changements ══ --}}
     @if ($viewMode === 'grid')
         <div wire:loading.block wire:target="search,sortBy,sortDirection,filterStatus,filterCategory,filterBrand,filterSupplier,filterFeatured,perPage,setViewMode,toggleTrashed,sort,gotoPage,previousPage,nextPage" style="display:none">
             <flux:skeleton.group animate="shimmer" class="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
@@ -532,7 +420,7 @@ new class extends Component
             </flux:skeleton.group>
         </div>
     @else
-        {{-- Skeleton LIST --}}
+        {{-- ══ Skeleton LIST ══ --}}
         <div wire:loading.block wire:target="search,sortBy,sortDirection,filterStatus,filterCategory,filterBrand,filterSupplier,filterFeatured,perPage,setViewMode,toggleTrashed,sort,gotoPage,previousPage,nextPage" style="display:none">
             <flux:skeleton.group animate="shimmer">
                 <flux:table>
@@ -575,7 +463,12 @@ new class extends Component
         </div>
     @endif
 
-    {{-- ══ GRID VIEW ══ --}}
+    {{-- ══════════════════════════════════════════
+         CONTENU RÉEL
+         Image fix : x-init vérifie img.complete
+         pour les images déjà en cache au refresh
+    ══════════════════════════════════════════════ --}}
+
     @if ($viewMode === 'grid')
         <div wire:loading.class="content-loading" wire:target="search,sortBy,sortDirection,filterStatus,filterCategory,filterBrand,filterSupplier,filterFeatured,perPage,setViewMode,toggleTrashed,sort,gotoPage,previousPage,nextPage">
             @if ($this->products->isNotEmpty())
@@ -585,9 +478,15 @@ new class extends Component
 
                             <div class="relative aspect-square overflow-hidden bg-zinc-100 dark:bg-zinc-800">
                                 @if ($product->primaryImage?->image_path)
+                                    {{-- ✅ FIX : x-init vérifie si l'image est déjà chargée (cache browser) --}}
                                     <div
                                         x-data="{ loaded: false }"
-                                        x-init="const img = $el.querySelector('img'); if (img && img.complete && img.naturalWidth > 0) loaded = true;"
+                                        x-init="
+                                            const img = $el.querySelector('img');
+                                            if (img && img.complete && img.naturalWidth > 0) {
+                                                loaded = true;
+                                            }
+                                        "
                                         class="size-full"
                                     >
                                         <div x-show="!loaded" class="absolute inset-0">
@@ -699,7 +598,6 @@ new class extends Component
             @endif
         </div>
 
-    {{-- ══ LIST VIEW ══ --}}
     @else
         <div wire:loading.class="content-loading" wire:target="search,sortBy,sortDirection,filterStatus,filterCategory,filterBrand,filterSupplier,filterFeatured,perPage,setViewMode,toggleTrashed,sort,gotoPage,previousPage,nextPage">
             <flux:table>
@@ -727,9 +625,15 @@ new class extends Component
                                 <div class="flex items-center gap-3">
                                     <div class="relative size-10 shrink-0 overflow-hidden rounded-lg bg-zinc-100 dark:bg-zinc-800">
                                         @if ($product->primaryImage?->image_path)
+                                            {{-- ✅ FIX : x-init vérifie img.complete pour les images cachées --}}
                                             <div
                                                 x-data="{ loaded: false }"
-                                                x-init="const img = $el.querySelector('img'); if (img && img.complete && img.naturalWidth > 0) loaded = true;"
+                                                x-init="
+                                                    const img = $el.querySelector('img');
+                                                    if (img && img.complete && img.naturalWidth > 0) {
+                                                        loaded = true;
+                                                    }
+                                                "
                                                 class="size-full"
                                             >
                                                 <div x-show="!loaded" class="absolute inset-0">
@@ -790,9 +694,7 @@ new class extends Component
 
                             @if (!$showTrashed)
                                 <flux:table.cell>
-                                    <flux:badge size="sm" :color="$this->statusColor($product->status??'pending')" inset="top bottom">
-                                        {{ ucfirst($product->status??'pending') }}
-                                    </flux:badge>
+                                    <flux:badge size="sm" :color="$this->statusColor($product->status??'pending')" inset="top bottom">{{ ucfirst($product->status??'pending') }}</flux:badge>
                                 </flux:table.cell>
                                 <flux:table.cell class="text-sm text-zinc-500">{{ number_format($product->total_sold??0) }}</flux:table.cell>
                                 <flux:table.cell>
@@ -805,9 +707,7 @@ new class extends Component
                                     @else <span class="text-sm text-zinc-400">—</span> @endif
                                 </flux:table.cell>
                             @else
-                                <flux:table.cell class="whitespace-nowrap text-sm text-red-500">
-                                    {{ $product->deleted_at?->diffForHumans()??'—' }}
-                                </flux:table.cell>
+                                <flux:table.cell class="whitespace-nowrap text-sm text-red-500">{{ $product->deleted_at?->diffForHumans()??'—' }}</flux:table.cell>
                             @endif
 
                             <flux:table.cell class="whitespace-nowrap text-sm text-zinc-500">{{ $product->created_at->format('d M Y') }}</flux:table.cell>
