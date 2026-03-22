@@ -38,6 +38,6 @@ Route::middleware(["auth", "verified"])->group(function () {
 });
 
 // Public routes
-Route::view("products", "shared.product")->name("products");
+Route::view("all-products", "shared.product")->name("all-products");
 
 require __DIR__ . "/settings.php";
