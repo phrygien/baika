@@ -6,8 +6,8 @@ use App\Models\FlashSale;
 
 new class extends Component
 {
-    public array $bestSellers          = [];
-    public array $bestSellersByCategory = [];
+    public array $bestSellers          = [];   // flat — pour les cards promo
+    public array $bestSellersByCategory = [];  // groupé par catégorie racine
     public array $newArrivals          = [];
     public array $topRated             = [];
     public array $categories           = [];
@@ -16,24 +16,28 @@ new class extends Component
 
     public function mount(): void
     {
-        $with = ['primaryImage:id,product_id,image_path,alt_text,is_primary', 'category:id,name,slug', 'brand:id,name'];
+        $with = ['primaryImage:id,product_id,image_path,alt_text,is_primary', 'category:id,name', 'brand:id,name'];
         $sel  = ['id','name','slug','base_price','compare_at_price','currency','average_rating','total_reviews','total_sold','category_id','brand_id'];
 
+        // ── Best sellers flat (pour promos / featured) ───────────────────────
         $this->bestSellers = Product::select($sel)->with($with)
             ->where('status','approved')->where('is_active',true)
             ->orderByDesc('total_sold')->limit(16)->get()
             ->map(fn($p) => $this->mapProduct($p))->toArray();
 
+        // ── Nouvelles arrivées ───────────────────────────────────────────────
         $this->newArrivals = Product::select($sel)->with($with)
             ->where('status','approved')->where('is_active',true)
             ->orderByDesc('created_at')->limit(16)->get()
             ->map(fn($p) => $this->mapProduct($p))->toArray();
 
+        // ── Top rated ────────────────────────────────────────────────────────
         $this->topRated = Product::select($sel)->with($with)
             ->where('status','approved')->where('is_active',true)
             ->whereNotNull('average_rating')->orderByDesc('average_rating')->limit(16)->get()
             ->map(fn($p) => $this->mapProduct($p))->toArray();
 
+        // ── Catégories racines + 4 enfants directs actifs ────────────────────
         $this->categories = Category::where('is_active', true)
             ->roots()
             ->with([
@@ -45,7 +49,7 @@ new class extends Component
             ])
             ->orderBy('sort_order')
             ->orderBy('name')
-            ->limit(16)
+            ->limit(12)
             ->get(['id','name','slug','icon','image'])
             ->map(fn($cat) => [
                 'id'       => $cat->id,
@@ -63,8 +67,10 @@ new class extends Component
             ])
             ->toArray();
 
+        // ── Best sellers par catégorie racine (produits vraiment dans la catégorie) ──
         $this->bestSellersByCategory = $this->buildBestSellersByCategory($sel, $with);
 
+        // ── Flash sales actives ───────────────────────────────────────────────
         $this->activeSales = FlashSale::with([
                 'products' => fn($q) => $q->active()
                     ->with(['product.primaryImage:id,product_id,image_path,alt_text,is_primary'])
@@ -79,6 +85,7 @@ new class extends Component
             ->map(fn($sale) => $this->mapSale($sale))
             ->toArray();
 
+        // ── Flash sales à venir ───────────────────────────────────────────────
         $this->upcomingSales = FlashSale::with(['products' => fn($q) => $q->limit(4)])
             ->upcoming()
             ->orderBy('starts_at')
@@ -88,19 +95,25 @@ new class extends Component
             ->toArray();
     }
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // Pour chaque catégorie racine, on récupère UNIQUEMENT les produits dont
+    // category_id est dans {racine} ∪ {tous les descendants}.
+    // ─────────────────────────────────────────────────────────────────────────
     protected function buildBestSellersByCategory(array $sel, array $with): array
     {
+        // On charge les catégories racines avec TOUS leurs descendants récursifs
         $rootCategories = Category::where('is_active', true)
             ->roots()
-            ->with(['allChildren'])
+            ->with(['allChildren'])   // relation récursive définie dans le modèle
             ->orderBy('sort_order')
             ->orderBy('name')
-            ->limit(16)
+            ->limit(12)
             ->get();
 
         $result = [];
 
         foreach ($rootCategories as $rootCat) {
+            // Collecte récursive de tous les IDs (racine + enfants + petits-enfants…)
             $allIds = $this->collectCategoryIds($rootCat);
 
             $products = Product::select($sel)->with($with)
@@ -113,11 +126,11 @@ new class extends Component
                 ->map(fn($p) => $this->mapProduct($p))
                 ->toArray();
 
+            // N'ajouter le groupe que s'il contient au moins 1 produit
             if (!empty($products)) {
                 $result[] = [
                     'category_id'   => $rootCat->id,
                     'category_name' => $rootCat->name,
-                    'category_slug' => $rootCat->slug, // ← slug ajouté
                     'products'      => $products,
                 ];
             }
@@ -126,6 +139,7 @@ new class extends Component
         return $result;
     }
 
+    // Collecte récursive de tous les IDs d'une catégorie et de ses descendants
     protected function collectCategoryIds($category): array
     {
         $ids = [$category->id];
@@ -140,7 +154,6 @@ new class extends Component
         return [
             'id'               => $p->id,
             'name'             => $p->name,
-            'slug'             => $p->slug,
             'base_price'       => $p->base_price,
             'compare_at_price' => $p->compare_at_price,
             'currency'         => $p->currency ?? 'USD',
@@ -149,7 +162,6 @@ new class extends Component
             'total_sold'       => $p->total_sold ?? 0,
             'image'            => $p->primaryImage?->image_path,
             'category'         => $p->category?->name,
-            'category_slug'    => $p->category?->slug, // ← slug catégorie du produit
             'brand'            => $p->brand?->name,
             'discount'         => $p->compare_at_price && $p->compare_at_price > $p->base_price
                 ? (int)round((1 - $p->base_price / $p->compare_at_price) * 100) : 0,
@@ -284,8 +296,7 @@ new class extends Component
 .amzp-sub{background:#fff;padding:13px;transition:background .2s}
 .amzp-sub-title{font-size:.98rem;font-weight:700;color:#0F1111;margin-bottom:8px;transition:color .2s}
 .amzp-sub-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px}
-.amzp-sub-cell{display:flex;flex-direction:column;gap:3px;cursor:pointer;text-decoration:none;color:inherit}
-.amzp-sub-cell:hover .amzp-sub-label{color:#007185}
+.amzp-sub-cell{display:flex;flex-direction:column;gap:3px;cursor:pointer}
 .amzp-sub-img{aspect-ratio:1;width:100%;border-radius:2px;overflow:hidden;background:#f0f2f3;display:flex;align-items:center;justify-content:center;transition:background .2s}
 .amzp-sub-img img{width:100%;height:100%;object-fit:cover;display:block}
 .amzp-sub-img svg{width:28px;height:28px;color:#c8cdd0}
@@ -304,8 +315,7 @@ new class extends Component
 
 /* CIRCLE CATEGORIES */
 .amzp-circles{display:flex;gap:18px;overflow-x:auto;padding:4px 2px 12px}
-.amzp-circle-item{display:flex;flex-direction:column;align-items:center;gap:7px;flex-shrink:0;width:108px;cursor:pointer;text-decoration:none}
-.amzp-circle-item:hover .amzp-circle-label{color:#007185}
+.amzp-circle-item{display:flex;flex-direction:column;align-items:center;gap:7px;flex-shrink:0;width:108px;cursor:pointer}
 .amzp-circle{width:88px;height:88px;border-radius:50%;overflow:hidden;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:transform .2s;background:#d0d3d4}
 .amzp-circle:hover{transform:scale(1.06)}
 .amzp-circle img{width:100%;height:100%;object-fit:cover;display:block}
@@ -375,8 +385,6 @@ new class extends Component
 .dark .amzp-sub  [style*="color:#007185"]{color:#6bbfc9 !important}
 .dark .amzp-promo [style*="color:#0F1111"]{color:#e3e6e6 !important}
 .dark .amzp-promo [style*="color:#B12704"]{color:#ff6b6b !important}
-.dark .amzp-circle-item:hover .amzp-circle-label{color:#6bbfc9}
-.dark .amzp-sub-cell:hover .amzp-sub-label{color:#6bbfc9}
 </style>
 @endonce
 
@@ -392,6 +400,7 @@ $svgCircle = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-
            . '<path d="M12 2v3M12 19v3M4.22 4.22l2.12 2.12M17.66 17.66l2.12 2.12M2 12h3M19 12h3M4.22 19.78l2.12-2.12M17.66 6.34l2.12-2.12"/>'
            . '</svg>';
 
+// Helpers Blade
 $bsCat = fn(int $idx) => $bestSellersByCategory[$idx] ?? null;
 @endphp
 
@@ -462,79 +471,49 @@ $nSlides = count($slides);
         {{-- Card A: Catégorie [0] + ses enfants --}}
         @php $catA = $categories[0] ?? null; @endphp
         <div class="amzp-sub">
-            <a href="{{ $catA ? route('product-category', $catA['slug']) : '#' }}" style="text-decoration:none">
-                <p class="amzp-sub-title">{{ $catA['name'] ?? __('Kitchen & Home') }}</p>
-            </a>
+            <p class="amzp-sub-title">{{ $catA['name'] ?? __('Kitchen & Home') }}</p>
             <div class="amzp-sub-grid">
                 @forelse (array_slice($catA['children'] ?? [], 0, 4) as $child)
-                    <a href="{{ route('product-category', $child['slug']) }}" class="amzp-sub-cell">
+                    <div class="amzp-sub-cell">
                         <div class="amzp-sub-img">
                             @if(!empty($child['image']))<img src="{{ asset($child['image']) }}" alt="{{ $child['name'] }}" loading="lazy">
                             @else{!! $svgImg !!}@endif
                         </div>
                         <span class="amzp-sub-label">{{ $child['name'] }}</span>
-                    </a>
+                    </div>
                 @empty
                     @for ($e = 0; $e < 4; $e++)
                         <div class="amzp-sub-cell"><div class="amzp-sub-img">{!! $svgImg !!}</div><span class="amzp-sub-label">—</span></div>
                     @endfor
                 @endforelse
             </div>
-            @if($catA)
-                <a href="{{ route('product-category', $catA['slug']) }}" class="amzp-sub-more" wire:navigate>{{ __('See more') }}</a>
-            @endif
+            <a href="{{ route('all-products') }}" class="amzp-sub-more" wire:navigate>{{ __('See more') }}</a>
         </div>
 
-        {{-- Card B: Catégorie [1] avec ses enfants --}}
-        @php $catB = $categories[1] ?? null; @endphp
-        <div class="amzp-sub">
-            <a href="{{ $catB ? route('product-category', $catB['slug']) : '#' }}" style="text-decoration:none">
-                <p class="amzp-sub-title">{{ $catB['name'] ?? __('High-Tech') }}</p>
-            </a>
-            <div class="amzp-sub-grid">
-                @forelse (array_slice($catB['children'] ?? [], 0, 4) as $child)
-                    <a href="{{ route('product-category', $child['slug']) }}" class="amzp-sub-cell">
-                        <div class="amzp-sub-img">
-                            @if(!empty($child['image']))<img src="{{ asset($child['image']) }}" alt="{{ $child['name'] }}" loading="lazy">
-                            @else{!! $svgImg !!}@endif
-                        </div>
-                        <span class="amzp-sub-label">{{ $child['name'] }}</span>
-                    </a>
-                @empty
-                    @for ($e = 0; $e < 4; $e++)
-                        <div class="amzp-sub-cell"><div class="amzp-sub-img">{!! $svgImg !!}</div><span class="amzp-sub-label">—</span></div>
-                    @endfor
-                @endforelse
+        {{-- Card B: Premier flash sale actif --}}
+        <div class="amzp-promo">
+            <p class="amzp-promo-title" style="color:#CC0C39">{{ !empty($activeSales[0]) ? $activeSales[0]['title'] : __('-25% on your first order') }}</p>
+            <div class="amzp-promo-img">
+                @if(!empty($activeSales[0]['banner']))<img src="{{ asset($activeSales[0]['banner']) }}" alt="">
+                @elseif(!empty($activeSales[0]['products'][0]['image']))<img src="{{ asset($activeSales[0]['products'][0]['image']) }}" alt="" style="object-fit:contain;padding:8px;background:#f5f0ff">
+                @else{!! $svgImg !!}@endif
             </div>
-            @if($catB)
-                <a href="{{ route('product-category', $catB['slug']) }}" class="amzp-sub-more" wire:navigate>{{ __('See more') }}</a>
+            @if(!empty($activeSales[0]['products'][0]))
+                @php $fp0 = $activeSales[0]['products'][0]; @endphp
+                <p style="font-size:.72rem;color:#B12704;font-weight:700">-{{ $fp0['discount'] }}% — {{ number_format($fp0['flash_price'],2) }} {{ $fp0['currency'] }}</p>
             @endif
+            <a href="{{ route('all-products') }}" class="amzp-promo-more" wire:navigate>{{ __('See all flash sales') }}</a>
         </div>
 
-        {{-- Card C: Catégorie [2] avec ses enfants --}}
-        @php $catC = $categories[2] ?? null; @endphp
-        <div class="amzp-sub">
-            <a href="{{ $catC ? route('product-category', $catC['slug']) : '#' }}" style="text-decoration:none">
-                <p class="amzp-sub-title">{{ $catC['name'] ?? __('Fashion') }}</p>
-            </a>
-            <div class="amzp-sub-grid">
-                @forelse (array_slice($catC['children'] ?? [], 0, 4) as $child)
-                    <a href="{{ route('product-category', $child['slug']) }}" class="amzp-sub-cell">
-                        <div class="amzp-sub-img">
-                            @if(!empty($child['image']))<img src="{{ asset($child['image']) }}" alt="{{ $child['name'] }}" loading="lazy">
-                            @else{!! $svgImg !!}@endif
-                        </div>
-                        <span class="amzp-sub-label">{{ $child['name'] }}</span>
-                    </a>
-                @empty
-                    @for ($e = 0; $e < 4; $e++)
-                        <div class="amzp-sub-cell"><div class="amzp-sub-img">{!! $svgImg !!}</div><span class="amzp-sub-label">—</span></div>
-                    @endfor
-                @endforelse
+        {{-- Card C: Deuxième flash sale --}}
+        <div class="amzp-promo">
+            <p class="amzp-promo-title">{{ !empty($activeSales[1]) ? $activeSales[1]['title'] : __('Mini prices: -50% from 2 items') }}</p>
+            <div class="amzp-promo-img">
+                @if(!empty($activeSales[1]['banner']))<img src="{{ asset($activeSales[1]['banner']) }}" alt="">
+                @elseif(!empty($activeSales[1]['products'][0]['image']))<img src="{{ asset($activeSales[1]['products'][0]['image']) }}" alt="" style="object-fit:contain;padding:8px;background:#f0fff4">
+                @else{!! $svgImg !!}@endif
             </div>
-            @if($catC)
-                <a href="{{ route('product-category', $catC['slug']) }}" class="amzp-sub-more" wire:navigate>{{ __('See more') }}</a>
-            @endif
+            <a href="{{ route('all-products') }}" class="amzp-promo-more" wire:navigate>{{ __('Discover deals') }}</a>
         </div>
 
         {{-- Card D: Nouvelles arrivées --}}
@@ -564,7 +543,7 @@ $nSlides = count($slides);
             <button @click="el.scrollBy({left:-900,behavior:'smooth'})" class="amzp-arr l"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5"/></svg></button>
             <div x-ref="c1" class="amzp-strip noscr">
                 @foreach ($topRated as $p)
-                    <a href="{{ $p['category_slug'] ? route('product-category', $p['category_slug']) : route('all-products') }}" class="amzp-prod" wire:navigate>
+                    <a href="#" class="amzp-prod">
                         <div class="amzp-prod-img-wrap">
                             @if($p['image'])<img src="{{ asset($p['image']) }}" class="amzp-prod-img" loading="lazy">
                             @else<div class="amzp-prod-noimg">{!! $svgImg !!}</div>@endif
@@ -582,7 +561,7 @@ $nSlides = count($slides);
 @endif
 
 {{-- ══════════════════════════════════════════════
-     4 ▸ BEST SELLERS — groupe [0]
+     4 ▸ BEST SELLERS — groupe [0] (produits réellement dans cette catégorie)
 ═══════════════════════════════════════════════ --}}
 @if (!empty($bestSellersByCategory[0]['products']))
 @php $bsGroup0 = $bestSellersByCategory[0]; @endphp
@@ -590,13 +569,13 @@ $nSlides = count($slides);
     <div class="amzp-card">
         <div class="amzp-card-head">
             <span class="amzp-sec-title">{{ __('Best Sellers in') }} {{ $bsGroup0['category_name'] }}</span>
-            <a href="{{ route('product-category', $bsGroup0['category_slug']) }}" class="amzp-more" wire:navigate>{{ __('See more') }}</a>
+            <a href="{{ route('all-products') }}" class="amzp-more" wire:navigate>{{ __('See more') }}</a>
         </div>
         <div x-data="{el:null}" x-init="el=$refs.c2" style="position:relative">
             <button @click="el.scrollBy({left:-900,behavior:'smooth'})" class="amzp-arr l"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5"/></svg></button>
             <div x-ref="c2" class="amzp-strip noscr">
                 @foreach ($bsGroup0['products'] as $i => $p)
-                    <a href="{{ route('product-category', $bsGroup0['category_slug']) }}" class="amzp-prod" wire:navigate>
+                    <a href="#" class="amzp-prod">
                         <div class="amzp-prod-img-wrap">
                             @if($p['image'])<img src="{{ asset($p['image']) }}" class="amzp-prod-img" loading="lazy">
                             @else<div class="amzp-prod-noimg">{!! $svgImg !!}</div>@endif
@@ -616,44 +595,41 @@ $nSlides = count($slides);
 @endif
 
 {{-- ══════════════════════════════════════════════
-     5 ▸ 4-COL GRID — Catégories [3..5] + Featured [6]
+     5 ▸ 4-COL GRID — Catégories [0..2] + Featured [3]
 ═══════════════════════════════════════════════ --}}
 <div class="amzp-w" style="margin-bottom:8px">
     <div class="amzp-grid4">
 
-        @foreach (array_slice($categories, 3, 3) as $cat)
+        @foreach (array_slice($categories, 0, 3) as $cat)
         <div class="amzp-sub">
-            <a href="{{ route('product-category', $cat['slug']) }}" style="text-decoration:none">
-                <p class="amzp-sub-title">{{ $cat['name'] }}</p>
-            </a>
+            <p class="amzp-sub-title">{{ $cat['name'] }}</p>
             <div class="amzp-sub-grid">
                 @forelse (array_slice($cat['children'], 0, 4) as $child)
-                    <a href="{{ route('product-category', $child['slug']) }}" class="amzp-sub-cell">
+                    <div class="amzp-sub-cell">
                         <div class="amzp-sub-img">
                             @if(!empty($child['image']))<img src="{{ asset($child['image']) }}" alt="{{ $child['name'] }}" loading="lazy">
                             @else{!! $svgImg !!}@endif
                         </div>
                         <span class="amzp-sub-label">{{ $child['name'] }}</span>
-                    </a>
+                    </div>
                 @empty
                     @for ($e = 0; $e < 4; $e++)
                         <div class="amzp-sub-cell"><div class="amzp-sub-img">{!! $svgImg !!}</div><span class="amzp-sub-label">—</span></div>
                     @endfor
                 @endforelse
             </div>
-            <a href="{{ route('product-category', $cat['slug']) }}" class="amzp-sub-more" wire:navigate>{{ __('See more') }}</a>
+            <a href="{{ route('all-products') }}" class="amzp-sub-more" wire:navigate>{{ __('See more') }}</a>
         </div>
         @endforeach
 
-        {{-- Slot 4 : produit mis en avant dans catégorie [6] --}}
+        {{-- Slot 4 : produit mis en avant dans catégorie [3] --}}
         @php
-            $catFeat1   = $categories[6] ?? null;
-            $bsFeat1    = $bestSellersByCategory[6]['products'][0] ?? ($bestSellers[0] ?? null);
+            $catFeat1   = $categories[3] ?? null;
+            // Premier produit best seller appartenant réellement à cette catégorie
+            $bsFeat1    = $bestSellersByCategory[3]['products'][0] ?? ($bestSellers[0] ?? null);
         @endphp
         <div class="amzp-sub">
-            <a href="{{ $catFeat1 ? route('product-category', $catFeat1['slug']) : '#' }}" style="text-decoration:none">
-                <p class="amzp-sub-title">{{ __('Featured in') }} {{ $catFeat1['name'] ?? __('Kitchen') }}</p>
-            </a>
+            <p class="amzp-sub-title">{{ __('Featured in') }} {{ $catFeat1['name'] ?? __('Kitchen') }}</p>
             @if ($bsFeat1)
                 @if($bsFeat1['image'])
                     <img src="{{ asset($bsFeat1['image']) }}" style="width:100%;height:160px;object-fit:contain;padding:8px;background:#f9f9f9;border-radius:2px" loading="lazy">
@@ -663,9 +639,7 @@ $nSlides = count($slides);
                 <p style="font-size:.72rem;color:#0F1111;line-height:1.3;margin-top:6px">{{ Str::limit($bsFeat1['name'],60) }}</p>
                 <p style="color:#B12704;font-weight:700;font-size:.85rem;margin-top:3px">{{ number_format($bsFeat1['base_price'],2) }} {{ $bsFeat1['currency'] }}</p>
             @endif
-            @if($catFeat1)
-                <a href="{{ route('product-category', $catFeat1['slug']) }}" class="amzp-sub-more" wire:navigate>{{ __('Learn more') }}</a>
-            @endif
+            <a href="{{ route('all-products') }}" class="amzp-sub-more" wire:navigate>{{ __('Learn more') }}</a>
         </div>
 
     </div>
@@ -684,13 +658,13 @@ $nSlides = count($slides);
         <div class="amzp-circles noscr" style="padding:8px 14px 16px">
             @php $circleColors = ['#cc0000','#a50000','#d32f2f','#b71c1c','#c62828','#e53935','#880e4f','#4a148c','#1565c0','#01579b','#006400','#005a00']; @endphp
             @foreach ($categories as $ci => $cat)
-                <a href="{{ route('product-category', $cat['slug']) }}" class="amzp-circle-item" wire:navigate>
+                <div class="amzp-circle-item">
                     <div class="amzp-circle" style="background:{{ $circleColors[$ci % 12] }}">
                         @if(!empty($cat['image']))<img src="{{ asset($cat['image']) }}" alt="{{ $cat['name'] }}" loading="lazy">
                         @else<div class="amzp-circle-noimg">{!! $svgCircle !!}</div>@endif
                     </div>
                     <span class="amzp-circle-label">{{ $cat['name'] }}</span>
-                </a>
+                </div>
             @endforeach
         </div>
     </div>
@@ -698,7 +672,7 @@ $nSlides = count($slides);
 @endif
 
 {{-- ══════════════════════════════════════════════
-     7 ▸ BEST SELLERS — groupe [1]
+     7 ▸ BEST SELLERS — groupe [1] (produits réellement dans cette catégorie)
 ═══════════════════════════════════════════════ --}}
 @if (!empty($bestSellersByCategory[1]['products']))
 @php $bsGroup1 = $bestSellersByCategory[1]; @endphp
@@ -706,13 +680,12 @@ $nSlides = count($slides);
     <div class="amzp-card">
         <div class="amzp-card-head">
             <span class="amzp-sec-title">{{ __('Best Sellers in') }} {{ $bsGroup1['category_name'] }}</span>
-            <a href="{{ route('product-category', $bsGroup1['category_slug']) }}" class="amzp-more" wire:navigate>{{ __('See more') }}</a>
         </div>
         <div x-data="{el:null}" x-init="el=$refs.c3" style="position:relative">
             <button @click="el.scrollBy({left:-900,behavior:'smooth'})" class="amzp-arr l"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5"/></svg></button>
             <div x-ref="c3" class="amzp-strip noscr" style="padding-bottom:16px">
                 @foreach (array_slice($bsGroup1['products'], 0, 12) as $i => $p)
-                    <a href="{{ route('product-category', $bsGroup1['category_slug']) }}" class="amzp-prod" style="width:175px;min-width:175px" wire:navigate>
+                    <a href="#" class="amzp-prod" style="width:175px;min-width:175px">
                         <div class="amzp-prod-img-wrap" style="width:155px;height:178px">
                             @if($p['image'])<img src="{{ asset($p['image']) }}" class="amzp-prod-img" loading="lazy">
                             @else<div class="amzp-prod-noimg">{!! $svgImg !!}</div>@endif
@@ -736,44 +709,40 @@ $nSlides = count($slides);
 @endif
 
 {{-- ══════════════════════════════════════════════
-     8 ▸ 4-COL GRID row 2 — Catégories [7..8] + Featured [9] + [10]
+     8 ▸ 4-COL GRID row 2 — Catégories [4..5] + Featured [6] + [7]
 ═══════════════════════════════════════════════ --}}
 <div class="amzp-w" style="margin-bottom:8px">
     <div class="amzp-grid4">
 
-        @foreach (array_slice($categories, 7, 2) as $cat)
+        @foreach (array_slice($categories, 4, 2) as $cat)
         <div class="amzp-sub">
-            <a href="{{ route('product-category', $cat['slug']) }}" style="text-decoration:none">
-                <p class="amzp-sub-title">{{ $cat['name'] }}</p>
-            </a>
+            <p class="amzp-sub-title">{{ $cat['name'] }}</p>
             <div class="amzp-sub-grid">
                 @forelse (array_slice($cat['children'], 0, 4) as $child)
-                    <a href="{{ route('product-category', $child['slug']) }}" class="amzp-sub-cell">
+                    <div class="amzp-sub-cell">
                         <div class="amzp-sub-img">
                             @if(!empty($child['image']))<img src="{{ asset($child['image']) }}" alt="{{ $child['name'] }}" loading="lazy">
                             @else{!! $svgImg !!}@endif
                         </div>
                         <span class="amzp-sub-label">{{ $child['name'] }}</span>
-                    </a>
+                    </div>
                 @empty
                     @for ($e = 0; $e < 4; $e++)
                         <div class="amzp-sub-cell"><div class="amzp-sub-img">{!! $svgImg !!}</div><span class="amzp-sub-label">—</span></div>
                     @endfor
                 @endforelse
             </div>
-            <a href="{{ route('product-category', $cat['slug']) }}" class="amzp-sub-more" wire:navigate>{{ __('See more') }}</a>
+            <a href="{{ route('all-products') }}" class="amzp-sub-more" wire:navigate>{{ __('See more') }}</a>
         </div>
         @endforeach
 
-        {{-- Slot 3 : produit mis en avant dans catégorie [9] --}}
+        {{-- Slot 3 : produit mis en avant dans catégorie [6] --}}
         @php
-            $catFeat2 = $categories[9] ?? null;
-            $bsFeat2  = $bestSellersByCategory[9]['products'][0] ?? ($bestSellers[3] ?? null);
+            $catFeat2 = $categories[6] ?? null;
+            $bsFeat2  = $bestSellersByCategory[6]['products'][0] ?? ($bestSellers[3] ?? null);
         @endphp
         <div class="amzp-sub">
-            <a href="{{ $catFeat2 ? route('product-category', $catFeat2['slug']) : '#' }}" style="text-decoration:none">
-                <p class="amzp-sub-title">{{ __('Featured in') }} {{ $catFeat2['name'] ?? __('Lawn & Garden') }}</p>
-            </a>
+            <p class="amzp-sub-title">{{ __('Featured in') }} {{ $catFeat2['name'] ?? __('Lawn & Garden') }}</p>
             @if ($bsFeat2)
                 @if($bsFeat2['image'])
                     <img src="{{ asset($bsFeat2['image']) }}" style="width:100%;height:160px;object-fit:contain;padding:8px;background:#f9f9f9;border-radius:2px" loading="lazy">
@@ -783,42 +752,36 @@ $nSlides = count($slides);
                 <p style="font-size:.72rem;color:#0F1111;line-height:1.3;margin-top:6px">{{ Str::limit($bsFeat2['name'],60) }}</p>
                 <p style="color:#B12704;font-weight:700;font-size:.85rem;margin-top:3px">{{ number_format($bsFeat2['base_price'],2) }} {{ $bsFeat2['currency'] }}</p>
             @endif
-            @if($catFeat2)
-                <a href="{{ route('product-category', $catFeat2['slug']) }}" class="amzp-sub-more" wire:navigate>{{ __('Learn more') }}</a>
-            @endif
+            <a href="{{ route('all-products') }}" class="amzp-sub-more" wire:navigate>{{ __('Learn more') }}</a>
         </div>
 
-        {{-- Catégorie [10] --}}
-        @php $cat10 = $categories[10] ?? null; @endphp
+        {{-- Catégorie [7] --}}
+        @php $cat7 = $categories[7] ?? null; @endphp
         <div class="amzp-sub">
-            <a href="{{ $cat10 ? route('product-category', $cat10['slug']) : '#' }}" style="text-decoration:none">
-                <p class="amzp-sub-title">{{ $cat10['name'] ?? __('Garden') }}</p>
-            </a>
+            <p class="amzp-sub-title">{{ $cat7['name'] ?? __('Garden') }}</p>
             <div class="amzp-sub-grid">
-                @forelse (array_slice($cat10['children'] ?? [], 0, 4) as $child)
-                    <a href="{{ route('product-category', $child['slug']) }}" class="amzp-sub-cell">
+                @forelse (array_slice($cat7['children'] ?? [], 0, 4) as $child)
+                    <div class="amzp-sub-cell">
                         <div class="amzp-sub-img">
                             @if(!empty($child['image']))<img src="{{ asset($child['image']) }}" alt="{{ $child['name'] }}" loading="lazy">
                             @else{!! $svgImg !!}@endif
                         </div>
                         <span class="amzp-sub-label">{{ $child['name'] }}</span>
-                    </a>
+                    </div>
                 @empty
                     @for ($e = 0; $e < 4; $e++)
                         <div class="amzp-sub-cell"><div class="amzp-sub-img">{!! $svgImg !!}</div><span class="amzp-sub-label">—</span></div>
                     @endfor
                 @endforelse
             </div>
-            @if($cat10)
-                <a href="{{ route('product-category', $cat10['slug']) }}" class="amzp-sub-more" wire:navigate>{{ __('See more') }}</a>
-            @endif
+            <a href="{{ route('all-products') }}" class="amzp-sub-more" wire:navigate>{{ __('See more') }}</a>
         </div>
 
     </div>
 </div>
 
 {{-- ══════════════════════════════════════════════
-     9 ▸ BEST SELLERS — groupe [2]
+     9 ▸ BEST SELLERS — groupe [2] (produits réellement dans cette catégorie)
 ═══════════════════════════════════════════════ --}}
 @if (!empty($bestSellersByCategory[2]['products']))
 @php $bsGroup2 = $bestSellersByCategory[2]; @endphp
@@ -826,13 +789,12 @@ $nSlides = count($slides);
     <div class="amzp-card">
         <div class="amzp-card-head">
             <span class="amzp-sec-title">{{ __('Best Sellers in') }} {{ $bsGroup2['category_name'] }}</span>
-            <a href="{{ route('product-category', $bsGroup2['category_slug']) }}" class="amzp-more" wire:navigate>{{ __('See more') }}</a>
         </div>
         <div x-data="{el:null}" x-init="el=$refs.c4" style="position:relative">
             <button @click="el.scrollBy({left:-900,behavior:'smooth'})" class="amzp-arr l"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5"/></svg></button>
             <div x-ref="c4" class="amzp-strip noscr">
                 @foreach (array_slice($bsGroup2['products'], 0, 12) as $i => $p)
-                    <a href="{{ route('product-category', $bsGroup2['category_slug']) }}" class="amzp-prod" wire:navigate>
+                    <a href="#" class="amzp-prod">
                         <div class="amzp-prod-img-wrap">
                             @if($p['image'])<img src="{{ asset($p['image']) }}" class="amzp-prod-img" loading="lazy">
                             @else<div class="amzp-prod-noimg">{!! $svgImg !!}</div>@endif
@@ -863,13 +825,13 @@ $nSlides = count($slides);
         <div class="amzp-circles noscr" style="padding:8px 14px 16px">
             @php $reds = ['#cc0000','#b71c1c','#c62828','#d32f2f','#e53935','#f44336','#ef5350','#e57373','#b71c1c','#880e4f','#4a148c','#1a237e']; @endphp
             @foreach ($categories as $ci2 => $cat2)
-                <a href="{{ route('product-category', $cat2['slug']) }}" class="amzp-circle-item" wire:navigate>
+                <div class="amzp-circle-item">
                     <div class="amzp-circle" style="background:{{ $reds[$ci2 % 12] }}">
                         @if(!empty($cat2['image']))<img src="{{ asset($cat2['image']) }}" alt="{{ $cat2['name'] }}" loading="lazy">
                         @else<div class="amzp-circle-noimg">{!! $svgCircle !!}</div>@endif
                     </div>
                     <span class="amzp-circle-label">{{ $cat2['name'] }}</span>
-                </a>
+                </div>
             @endforeach
         </div>
     </div>
@@ -877,7 +839,7 @@ $nSlides = count($slides);
 @endif
 
 {{-- ══════════════════════════════════════════════
-     11 ▸ 4 PROMO CARDS ROW 2
+     11 ▸ 4 PROMO CARDS ROW 2 — Catégorie [9] dynamique
 ═══════════════════════════════════════════════ --}}
 <div class="amzp-w" style="margin-bottom:8px">
     <div class="amzp-grid4">
@@ -899,9 +861,7 @@ $nSlides = count($slides);
             $bsFeat3  = $bestSellersByCategory[8]['products'][0] ?? ($bestSellers[5] ?? null);
         @endphp
         <div class="amzp-promo">
-            <a href="{{ $catFeat3 ? route('product-category', $catFeat3['slug']) : '#' }}" style="text-decoration:none">
-                <p class="amzp-promo-title">{{ __('Featured in') }} {{ $catFeat3['name'] ?? __('Automobile') }}</p>
-            </a>
+            <p class="amzp-promo-title">{{ __('Featured in') }} {{ $catFeat3['name'] ?? __('Automobile') }}</p>
             <div class="amzp-promo-img">
                 @if(!empty($bsFeat3['image']))<img src="{{ asset($bsFeat3['image']) }}" alt="" style="object-fit:contain;padding:8px">
                 @else{!! $svgImg !!}@endif
@@ -910,9 +870,7 @@ $nSlides = count($slides);
                 <p style="font-size:.72rem;color:#0F1111;line-height:1.3">{{ Str::limit($bsFeat3['name'],55) }}</p>
                 <p style="color:#B12704;font-weight:700;font-size:.84rem">{{ number_format($bsFeat3['base_price'],2) }} {{ $bsFeat3['currency'] }}</p>
             @endif
-            @if($catFeat3)
-                <a href="{{ route('product-category', $catFeat3['slug']) }}" class="amzp-promo-more" wire:navigate>{{ __('Learn more') }}</a>
-            @endif
+            <a href="{{ route('all-products') }}" class="amzp-promo-more" wire:navigate>{{ __('Learn more') }}</a>
         </div>
 
         {{-- Refurbished tech --}}
@@ -925,30 +883,26 @@ $nSlides = count($slides);
             <a href="{{ route('all-products') }}" class="amzp-promo-more" wire:navigate>{{ __('See all') }}</a>
         </div>
 
-        {{-- Catégorie [11] avec ses enfants --}}
-        @php $cat11 = $categories[11] ?? null; @endphp
+        {{-- Catégorie [9] avec ses enfants --}}
+        @php $cat9 = $categories[9] ?? null; @endphp
         <div class="amzp-sub">
-            <a href="{{ $cat11 ? route('product-category', $cat11['slug']) : '#' }}" style="text-decoration:none">
-                <p class="amzp-sub-title">{{ $cat11['name'] ?? __('Garden') }}</p>
-            </a>
+            <p class="amzp-sub-title">{{ $cat9['name'] ?? __('Garden') }}</p>
             <div class="amzp-sub-grid">
-                @forelse (array_slice($cat11['children'] ?? [], 0, 4) as $child)
-                    <a href="{{ route('product-category', $child['slug']) }}" class="amzp-sub-cell">
+                @forelse (array_slice($cat9['children'] ?? [], 0, 4) as $child)
+                    <div class="amzp-sub-cell">
                         <div class="amzp-sub-img">
                             @if(!empty($child['image']))<img src="{{ asset($child['image']) }}" alt="{{ $child['name'] }}" loading="lazy">
                             @else{!! $svgImg !!}@endif
                         </div>
                         <span class="amzp-sub-label">{{ $child['name'] }}</span>
-                    </a>
+                    </div>
                 @empty
                     @for ($e = 0; $e < 4; $e++)
                         <div class="amzp-sub-cell"><div class="amzp-sub-img">{!! $svgImg !!}</div><span class="amzp-sub-label">—</span></div>
                     @endfor
                 @endforelse
             </div>
-            @if($cat11)
-                <a href="{{ route('product-category', $cat11['slug']) }}" class="amzp-sub-more" wire:navigate>{{ __('Discover') }}</a>
-            @endif
+            <a href="{{ route('all-products') }}" class="amzp-sub-more" wire:navigate>{{ __('Discover') }}</a>
         </div>
 
     </div>
@@ -1004,7 +958,7 @@ $nSlides = count($slides);
                 <button @click="el.scrollBy({left:-900,behavior:'smooth'})" class="amzp-arr l"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5"/></svg></button>
                 <div x-ref="fs{{ $sale['id'] }}" class="amzp-strip noscr">
                     @foreach ($sale['products'] as $sp)
-                        <a href="{{ route('all-products') }}" class="amzp-prod" style="width:150px;min-width:150px;{{ !$sp['is_available'] ? 'opacity:0.55' : '' }}" wire:navigate>
+                        <a href="#" class="amzp-prod" style="width:150px;min-width:150px;{{ !$sp['is_available'] ? 'opacity:0.55' : '' }}">
                             <div class="amzp-prod-img-wrap" style="width:136px;height:155px">
                                 @if($sp['image'])<img src="{{ asset($sp['image']) }}" class="amzp-prod-img" loading="lazy">
                                 @else<div class="amzp-prod-noimg">{!! $svgImg !!}</div>@endif
